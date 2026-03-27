@@ -52,11 +52,19 @@ function Install-EnvHandle {
     }
 
     # Remove files that belong at parent level only
-    $nestedSetup = Join-Path $envHandleDir "setup-server.ps1"
-    if (Test-Path $nestedSetup) { Remove-Item $nestedSetup -Force }
+    foreach ($removeFile in @("init-env-handle.ps1", "setup-server.ps1", "README.md", "env_handling.md")) {
+        $nested = Join-Path $envHandleDir $removeFile
+        if (Test-Path $nested) { Remove-Item $nested -Force }
+    }
 
-    $nestedReadme = Join-Path $envHandleDir "README.md"
-    if (Test-Path $nestedReadme) { Remove-Item $nestedReadme -Force }
+    # Copy .cursorrules to project root (Cursor only reads from root)
+    $cursorSource = Join-Path $envHandleDir ".cursorrules"
+    $cursorTarget = Join-Path $RepoPath ".cursorrules"
+    if (Test-Path $cursorSource) {
+        Copy-Item $cursorSource $cursorTarget -Force
+        Remove-Item $cursorSource -Force
+        Write-Host "    .cursorrules - copied to project root" -ForegroundColor Green
+    }
 
     # Filter by OS: remove scripts for the other platform
     $isWindows = $env:OS -eq "Windows_NT"

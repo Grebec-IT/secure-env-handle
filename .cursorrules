@@ -1,0 +1,100 @@
+# Environment Variable Handling — Agent Instructions
+
+> This project uses encrypted environment variables. Follow these rules when
+> writing code that depends on configuration or secrets.
+
+## Rules
+
+1. **NEVER** commit `.env` files, `.credentials.json` files, or plaintext secrets.
+2. **NEVER** hardcode secrets in source code — all secrets come from `.env` at runtime.
+3. **NEVER** create or modify `.env` files directly — use the scripts below.
+4. Docker services consume secrets via `env_file: [.env]` in `docker-compose.yml`.
+5. The `.env` file only exists briefly during deployment and is deleted afterward.
+6. All scripts live in `secure-env-handle-and-deploy/` and operate on the
+   **parent directory** (the project root).
+
+## Project Structure
+
+```
+<project>/
+  docker-compose.yml
+  .env                                  # transient — created by deploy, deleted after
+  .cursorrules                          # this file (Cursor agent instructions)
+  envs/
+    dev.env.age                         # age-encrypted full .env (committed to git)
+    prod.env.age                        # same for prod (committed to git)
+    dev.credentials.json                # DPAPI per-entry store (gitignored, Windows only)
+    prod.credentials.json               # same for prod (gitignored, Windows only)
+  secure-env-handle-and-deploy/
+    CLAUDE.md                           # Claude Code agent instructions (auto-generated)
+    deploy.ps1                          # decrypt env + docker compose up
+    encrypt-env.ps1                     # .env → envs/{env}.env.age
+    decrypt-env.ps1                     # envs/{env}.env.age → .env
+    store-env-to-credentials.ps1        # .env → DPAPI per-entry store
+    generate-env-from-credentials.ps1   # DPAPI store → .env
+    deploy.sh                           # Linux: decrypt + docker compose up
+    encrypt-env.sh                      # Linux: .env → .age
+    decrypt-env.sh                      # Linux: .age → .env
+```
+
+## Available Scripts (run from `secure-env-handle-and-deploy/`)
+
+| Script | Purpose |
+|--------|---------|
+| `deploy.ps1` | Load env (DPAPI → age → .env fallback), run `docker compose up`, clean up |
+| `encrypt-env.ps1 {dev\|prod}` | Encrypt `.env` → `envs/{env}.env.age` for git |
+| `decrypt-env.ps1 {dev\|prod}` | Decrypt `envs/{env}.env.age` → `.env` |
+| `store-env-to-credentials.ps1 {dev\|prod}` | Store `.env` entries in DPAPI (Windows, machine-bound) |
+| `generate-env-from-credentials.ps1 {dev\|prod}` | Regenerate `.env` from DPAPI store |
+
+Linux equivalents: `deploy.sh`, `encrypt-env.sh`, `decrypt-env.sh`.
+
+## Env Source Priority (used by deploy.ps1)
+
+1. **DPAPI credential store** (`envs/{env}.credentials.json`) — no passphrase, Windows only
+2. **age-encrypted file** (`envs/{env}.env.age`) — asks for passphrase
+3. **Existing `.env` file** — used as-is
+
+## When writing code that needs env vars
+
+- Reference env vars by name (e.g., `DATABASE_URL`, `API_KEY`) — they will be
+  available at runtime via `.env` loaded by Docker Compose.
+- To see which keys exist: check `envs/dev.env.age` names by running
+  `.\decrypt-env.ps1 dev` or inspect a `.credentials.json` with:
+  ```powershell
+  Get-Content envs/dev.credentials.json | ConvertFrom-Json | Get-Member -MemberType NoteProperty | Select-Object Name
+  ```
+- Add new env vars by editing `.env` and re-encrypting:
+  ```powershell
+  .\generate-env-from-credentials.ps1 dev   # creates .env from DPAPI
+  # edit .env — add new var
+  .\store-env-to-credentials.ps1 dev         # save back to DPAPI
+  .\encrypt-env.ps1 dev                      # update .age for git
+  ```
+
+## .gitignore requirements
+
+These entries must be present in every project using this workflow:
+
+```
+.env
+*.credentials.json
+```
+
+## Encryption Reference
+
+- **age**: passphrase-based (scrypt + ChaCha20-Poly1305). No keys to manage.
+  `.age` files are binary, safe to commit.
+- **DPAPI** (Windows): per-entry encryption tied to the current Windows user +
+  machine. `.credentials.json` files are useless if stolen — cannot be
+  decrypted on another machine or by another user.
+
+## Security Model
+
+| Threat | Protection |
+|--------|------------|
+| Secrets in git history | `.env` gitignored; only encrypted `.age` files committed |
+| Git repo compromised | `.age` files need passphrase to decrypt |
+| Server compromised (offline) | DPAPI files unreadable without Windows user profile |
+| `.env` on disk | Deleted after deploy; only exists briefly |
+| Machine destroyed | Recover from `.age` in git + passphrase from PasswordDepot |
