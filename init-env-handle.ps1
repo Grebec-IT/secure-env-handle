@@ -1,6 +1,9 @@
 # Setup script: clone repos and/or deploy secure-env-handle scripts
 #
-# Usage: .\init-env-handle.ps1
+# Usage: .\init-env-handle.ps1 [-a]
+#
+# Flags:
+#   -a    Always prompt for GitHub organisation (overrides cached value)
 #
 # Modes:
 #   1) Pull Git repos + setup secure-env-handle (server provisioning)
@@ -11,12 +14,16 @@
 #   - Docker + Docker Compose installed (for deployment)
 #   - GitHub fine-grained token with read-only Contents access (mode 1 only)
 
+param(
+    [switch]$a
+)
+
 $ErrorActionPreference = "Stop"
 
-$Version = "1.3.0"
-$org = "Grebec-IT"
+$Version = "1.4.0"
+$defaultOrg = "Grebec-IT"
+$configPath = Join-Path $env:USERPROFILE ".secure-env-handle.json"
 $targetDir = Get-Location
-$envHandleRepo = "https://github.com/Grebec-IT/secure-env-handle.git"
 
 # -- Helper: run git without PowerShell intercepting stderr ----------------
 function Invoke-Git {
@@ -66,7 +73,7 @@ function Install-EnvHandle {
     }
 
     # Remove files that belong at parent level only
-    foreach ($removeFile in @("init-env-handle.ps1", "setup-server.ps1", "README.md", "env_handling.md", "CLAUDE.md", "LICENSE")) {
+    foreach ($removeFile in @("init-env-handle.ps1", "init-env-handle.sh", "setup-server.ps1", "README.md", "env_handling.md", "CLAUDE.md", "LICENSE")) {
         $nested = Join-Path $envHandleDir $removeFile
         if (Test-Path $nested) { Remove-Item $nested -Force }
     }
@@ -132,6 +139,13 @@ Write-Host "========================================"
 Write-Host "  Secure Env Handle Setup  v$Version"
 Write-Host "========================================"
 Write-Host ""
+
+# -- Resolve GitHub organisation silently (for version check) ---------------
+$cachedOrg = $null
+if (Test-Path $configPath) {
+    try { $cachedOrg = (Get-Content $configPath -Raw | ConvertFrom-Json).org } catch { }
+}
+$org = if ($cachedOrg) { $cachedOrg } else { $defaultOrg }
 
 try {
     $tagsUrl = "https://api.github.com/repos/$org/secure-env-handle/tags?per_page=1"
@@ -199,6 +213,17 @@ if ($mode -ne "1" -and $mode -ne "2") {
 if ($mode -eq "1") {
     Write-Host ""
     Write-Host "--- Mode 1: Pull Git Repos + Setup ---"
+    Write-Host ""
+
+    # -- GitHub organisation -----------------------------------------------
+    if ($a -or -not $cachedOrg) {
+        $suggestion = if ($cachedOrg) { $cachedOrg } else { $defaultOrg }
+        $orgInput = Read-Host "  GitHub organisation [$suggestion]"
+        $org = if ([string]::IsNullOrWhiteSpace($orgInput)) { $suggestion } else { $orgInput.Trim() }
+        @{ org = $org } | ConvertTo-Json | Set-Content $configPath
+    } else {
+        Write-Host "  Organisation: $org (use -a to change)" -ForegroundColor DarkGray
+    }
     Write-Host ""
 
     # -- GitHub token ------------------------------------------------------
