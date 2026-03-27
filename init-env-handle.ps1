@@ -73,6 +73,42 @@ function Install-EnvHandle {
     } else {
         Get-ChildItem (Join-Path $envHandleDir "*.ps1") -ErrorAction SilentlyContinue | Remove-Item -Force
     }
+
+    # -- Ensure .gitignore contains required entries -----------------------
+    $gitignorePath = Join-Path $RepoPath ".gitignore"
+    $requiredEntries = @(".env", "*.credentials.json")
+
+    # Read existing entries (if file exists)
+    $existingEntries = @()
+    if (Test-Path $gitignorePath) {
+        $existingEntries = Get-Content $gitignorePath | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+    }
+
+    # Find which entries are missing
+    $missingEntries = $requiredEntries | Where-Object { $_ -notin $existingEntries }
+
+    if ($missingEntries.Count -gt 0) {
+        Write-Host ""
+        Write-Host "    .gitignore - missing entries for secure-env-handle:" -ForegroundColor Yellow
+        foreach ($entry in $missingEntries) {
+            Write-Host "      + $entry" -ForegroundColor Yellow
+        }
+        $approve = Read-Host "    Append to .gitignore? [Y/n]"
+        if ($approve -ne "n" -and $approve -ne "N") {
+            # Add a blank line separator if file exists and doesn't end with newline
+            $prefix = ""
+            if ((Test-Path $gitignorePath) -and (Get-Content $gitignorePath -Raw) -notmatch '\n$') {
+                $prefix = "`n"
+            }
+            $block = ($prefix + "`n# secure-env-handle`n" + ($missingEntries -join "`n") + "`n")
+            Add-Content -Path $gitignorePath -Value $block -NoNewline
+            Write-Host "    .gitignore - updated" -ForegroundColor Green
+        } else {
+            Write-Host "    .gitignore - skipped (manual update needed)" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "    .gitignore - already up to date" -ForegroundColor Green
+    }
 }
 
 # ==========================================================================
