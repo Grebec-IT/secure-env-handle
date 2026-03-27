@@ -1,6 +1,6 @@
 # Setup script: clone repos and/or deploy secure-env-handle scripts
 #
-# Usage: .\setup-server.ps1
+# Usage: .\init-env-handle.ps1
 #
 # Modes:
 #   1) Pull Git repos + setup secure-env-handle (server provisioning)
@@ -13,6 +13,7 @@
 
 $ErrorActionPreference = "Stop"
 
+$Version = "1.0.0"
 $org = "Grebec-IT"
 $targetDir = Get-Location
 $envHandleRepo = "https://github.com/Grebec-IT/secure-env-handle.git"
@@ -30,25 +31,19 @@ function Install-EnvHandle {
 
     $envHandleDir = Join-Path $RepoPath "secure-env-handle-and-deploy"
 
+    # Always fresh clone at the pinned version (folder is gitignored)
     if (Test-Path $envHandleDir) {
-        Write-Host "    env-scripts - updating..." -ForegroundColor Yellow
-        Push-Location $envHandleDir
-        $exit = Invoke-Git "pull --ff-only"
-        Pop-Location
-        if ($exit -ne 0) {
-            Write-Host "    env-scripts - update FAILED" -ForegroundColor Red
-        } else {
-            Write-Host "    env-scripts - updated" -ForegroundColor Green
-        }
+        Remove-Item $envHandleDir -Recurse -Force
+        Write-Host "    env-scripts - removed old copy" -ForegroundColor Yellow
+    }
+
+    Write-Host "    env-scripts - cloning v$Version..." -ForegroundColor Cyan
+    $exit = Invoke-Git "clone --branch v${Version} --depth 1 ${envHandleRepo} ${envHandleDir}"
+    if ($exit -ne 0) {
+        Write-Host "    env-scripts - FAILED (tag v$Version may not exist)" -ForegroundColor Red
+        return
     } else {
-        Write-Host "    env-scripts - cloning..." -ForegroundColor Cyan
-        $exit = Invoke-Git "clone ${envHandleRepo} ${envHandleDir}"
-        if ($exit -ne 0) {
-            Write-Host "    env-scripts - FAILED" -ForegroundColor Red
-            return
-        } else {
-            Write-Host "    env-scripts - cloned" -ForegroundColor Green
-        }
+        Write-Host "    env-scripts - installed v$Version" -ForegroundColor Green
     }
 
     # Remove files that belong at parent level only
@@ -76,7 +71,7 @@ function Install-EnvHandle {
 
     # -- Ensure .gitignore contains required entries -----------------------
     $gitignorePath = Join-Path $RepoPath ".gitignore"
-    $requiredEntries = @(".env", "*.credentials.json")
+    $requiredEntries = @(".env", "*.credentials.json", "secure-env-handle-and-deploy/")
 
     # Read existing entries (if file exists)
     $existingEntries = @()
@@ -112,9 +107,62 @@ function Install-EnvHandle {
 }
 
 # ==========================================================================
+# Version check (public repo, no auth needed)
+# ==========================================================================
 Write-Host "========================================"
-Write-Host "  Secure Env Handle Setup"
+Write-Host "  Secure Env Handle Setup  v$Version"
 Write-Host "========================================"
+Write-Host ""
+
+try {
+    $tagsUrl = "https://api.github.com/repos/$org/secure-env-handle/tags?per_page=1"
+    $tags = Invoke-RestMethod -Uri $tagsUrl -Headers @{ Accept = "application/vnd.github+json" } -TimeoutSec 5
+    if ($tags.Count -gt 0) {
+        $latestTag = $tags[0].name -replace '^v', ''
+        if ($latestTag -eq $Version) {
+            Write-Host "  v$Version (up to date)" -ForegroundColor Green
+        } else {
+            Write-Host "  WARNING: You are running v$Version, latest is v$latestTag" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "  1) Update script (cannot self-update while running)"
+            Write-Host "  2) Continue with current version (v$Version)"
+            Write-Host ""
+            $versionChoice = Read-Host "Choice [1/2]"
+
+            if ($versionChoice -eq "1") {
+                $rawUrl = "https://raw.githubusercontent.com/$org/secure-env-handle/v$latestTag/init-env-handle.ps1"
+                $releaseUrl = "https://github.com/$org/secure-env-handle/releases/tag/v$latestTag"
+                Write-Host ""
+                Write-Host "  C) Copy download URL to clipboard"
+                Write-Host "  B) Open releases page in browser"
+                Write-Host ""
+                $updateChoice = Read-Host "Choice [C/B]"
+
+                if ($updateChoice -eq "B" -or $updateChoice -eq "b") {
+                    Start-Process $releaseUrl
+                    Write-Host ""
+                    Write-Host "  Opened: $releaseUrl" -ForegroundColor Cyan
+                } else {
+                    Set-Clipboard -Value $rawUrl
+                    Write-Host ""
+                    Write-Host "  Copied to clipboard:" -ForegroundColor Cyan
+                    Write-Host "  $rawUrl"
+                    Write-Host ""
+                    Write-Host "  Download with:"
+                    Write-Host "  Invoke-WebRequest -Uri `"$rawUrl`" -OutFile init-env-handle.ps1"
+                }
+                Write-Host ""
+                Write-Host "  Re-run after updating. Exiting." -ForegroundColor Yellow
+                exit 0
+            }
+            Write-Host ""
+            Write-Host "  Continuing with v$Version..." -ForegroundColor Yellow
+        }
+    }
+} catch {
+    Write-Host "  Could not check for updates (offline?). Continuing with v$Version." -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "  1) Pull Git repos + setup secure-env-handle"
 Write-Host "  2) Setup secure-env-handle only (existing projects)"
