@@ -118,6 +118,21 @@ if ($layerNames.Count -lt 2) {
     exit 0
 }
 
+# -- Load manifest (if present) --------------------------------------------
+$manifestPath = Join-Path "envs" "secrets.keys"
+$secretKeys = @()
+$hasManifest = $false
+if (Test-Path $manifestPath) {
+    $secretKeys = Get-Content $manifestPath |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and -not $_.StartsWith("#") }
+    if ($secretKeys.Count -gt 0) {
+        $hasManifest = $true
+        Write-Host "  Manifest:  envs/secrets.keys ($($secretKeys.Count) secret keys)" -ForegroundColor Cyan
+        Write-Host ""
+    }
+}
+
 # -- Collect all keys across layers ----------------------------------------
 $allKeys = @{}
 foreach ($name in $layerNames) {
@@ -132,16 +147,20 @@ $inSync = 0
 $outOfSync = 0
 $missing = 0
 
-Write-Host "  Key                              " -NoNewline
+$typeCol = if ($hasManifest) { "{0,-8}" -f "type" } else { "" }
+Write-Host ("  {0,-28} $typeCol" -f "Key") -NoNewline
 foreach ($name in $layerNames) {
     Write-Host ("{0,-10}" -f $name) -NoNewline
 }
 Write-Host ""
-Write-Host "  $("-" * 35)" -NoNewline
+$typeDiv = if ($hasManifest) { "{0,-8}" -f "--------" } else { "" }
+Write-Host ("  {0,-28} $typeDiv" -f "----------------------------") -NoNewline
 foreach ($name in $layerNames) {
     Write-Host ("{0,-10}" -f "----------") -NoNewline
 }
 Write-Host ""
+
+$suggestions = @()
 
 foreach ($key in $sortedKeys) {
     $values = @()
@@ -157,15 +176,26 @@ foreach ($key in $sortedKeys) {
         }
     }
 
-    # Determine status
     $uniqueValues = $values | Select-Object -Unique
+    $displayKey = if ($key.Length -gt 26) { $key.Substring(0, 23) + "..." } else { $key }
 
-    $displayKey = if ($key.Length -gt 33) { $key.Substring(0, 30) + "..." } else { $key }
+    # Type classification
+    $typeStr = ""
+    if ($hasManifest) {
+        if ($key -in $secretKeys) {
+            $typeStr = "{0,-8}" -f "secret"
+        } else {
+            $typeStr = "{0,-8}" -f "config"
+            # Heuristic: suggest if key looks sensitive but not in manifest
+            if ($key -match 'PASSWORD|SECRET|TOKEN|CREDENTIAL|PRIVATE' -or $key -match '_API_KEY$') {
+                $suggestions += $key
+            }
+        }
+    }
 
     if ($absent.Count -gt 0) {
-        # Key missing from one or more layers
         $missing++
-        Write-Host ("  {0,-35}" -f $displayKey) -NoNewline
+        Write-Host ("  {0,-28} $typeStr" -f $displayKey) -NoNewline
         foreach ($name in $layerNames) {
             if ($layers[$name].ContainsKey($key)) {
                 Write-Host ("{0,-10}" -f "ok") -NoNewline -ForegroundColor Green
@@ -175,24 +205,31 @@ foreach ($key in $sortedKeys) {
         }
         Write-Host ""
     } elseif ($uniqueValues.Count -eq 1) {
-        # All layers have the same value
         $inSync++
-        Write-Host ("  {0,-35}" -f $displayKey) -NoNewline
+        Write-Host ("  {0,-28} $typeStr" -f $displayKey) -NoNewline
         foreach ($name in $layerNames) {
             Write-Host ("{0,-10}" -f "ok") -NoNewline -ForegroundColor Green
         }
         Write-Host ""
     } else {
-        # Values differ
         $outOfSync++
-        Write-Host ("  {0,-35}" -f $displayKey) -NoNewline
-        # Show first 4 chars of each value for debugging
+        Write-Host ("  {0,-28} $typeStr" -f $displayKey) -NoNewline
         foreach ($name in $layerNames) {
             $val = $layers[$name][$key]
             $preview = if ($val.Length -gt 4) { $val.Substring(0, 4) + "..." } else { $val }
             Write-Host ("{0,-10}" -f $preview) -NoNewline -ForegroundColor Red
         }
         Write-Host "  MISMATCH" -ForegroundColor Red
+    }
+}
+
+# Warn about manifest keys not found in any layer
+if ($hasManifest) {
+    foreach ($sk in $secretKeys) {
+        if (-not $allKeys.ContainsKey($sk)) {
+            Write-Host ""
+            Write-Host "  WARNING: manifest key '$sk' not found in any layer" -ForegroundColor Yellow
+        }
     }
 }
 
@@ -220,6 +257,14 @@ if ($outOfSync -eq 0 -and $missing -eq 0) {
     }
     if ($missing -gt 0) {
         Write-Host "  NOTE: $missing key(s) missing from one or more layers." -ForegroundColor Yellow
+    }
+}
+
+if ($suggestions.Count -gt 0) {
+    Write-Host ""
+    Write-Host "  Suggestion: these keys look sensitive but are NOT in envs/secrets.keys:" -ForegroundColor Yellow
+    foreach ($s in $suggestions) {
+        Write-Host "    + $s" -ForegroundColor Yellow
     }
 }
 Write-Host ""

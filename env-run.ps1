@@ -33,6 +33,55 @@ Add-Type -AssemblyName System.Security
 
 $ProjectName = Split-Path $ProjectRoot -Leaf
 
+# -- Helper: split .env into config + secret files -------------------------
+function Split-EnvSecrets {
+    $manifest = Join-Path "envs" "secrets.keys"
+    if (-not (Test-Path $manifest)) { return $false }
+
+    $secretKeys = Get-Content $manifest |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and -not $_.StartsWith("#") }
+
+    if ($secretKeys.Count -eq 0) { return $false }
+
+    # Backup full .env before splitting
+    Copy-Item ".env" ".env.full" -Force
+
+    # Parse .env
+    $configLines = @()
+    $splitCount = 0
+    $secretDir = ".secrets"
+    if (-not (Test-Path $secretDir)) { New-Item -ItemType Directory -Path $secretDir -Force | Out-Null }
+
+    Get-Content ".env" | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#")) {
+            $configLines += $_
+            return
+        }
+        $eqIdx = $line.IndexOf("=")
+        if ($eqIdx -le 0) {
+            $configLines += $_
+            return
+        }
+        $key = $line.Substring(0, $eqIdx).Trim()
+        $value = $line.Substring($eqIdx + 1).Trim()
+
+        if ($key -in $secretKeys) {
+            $secretPath = Join-Path $secretDir $key
+            [System.IO.File]::WriteAllText($secretPath, $value)
+            $splitCount++
+        } else {
+            $configLines += $_
+        }
+    }
+
+    $configLines | Set-Content -Path ".env" -Encoding UTF8
+
+    Write-Host "  Secrets: $splitCount key(s) -> .secrets/" -ForegroundColor Cyan
+    return $true
+}
+
 Write-Host "========================================"
 Write-Host "  Run: $ProjectName ($EnvName)"
 Write-Host "========================================"
@@ -126,6 +175,9 @@ if (-not $fromSource) {
 }
 
 Write-Host "  Loaded from: $fromSource" -ForegroundColor Green
+
+# Split secrets if manifest exists
+$secretsSplit = Split-EnvSecrets
 Write-Host ""
 
 # -- Execute command ---------------------------------------------------------
@@ -146,6 +198,12 @@ try {
         Remove-Item .env -Force
         Write-Host ""
         Write-Host "  .env deleted." -ForegroundColor Green
+    }
+    # Clean up secret files and backup
+    if (Test-Path ".env.full") { Remove-Item ".env.full" -Force }
+    if ($secretsSplit -and (Test-Path ".secrets")) {
+        Remove-Item ".secrets" -Recurse -Force
+        Write-Host "  .secrets/ deleted." -ForegroundColor Green
     }
 }
 

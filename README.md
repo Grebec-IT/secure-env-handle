@@ -10,7 +10,8 @@ Three layers of secret storage, checked in priority order:
 2. **Windows DPAPI** (`.credentials.json`) — per-entry encryption, zero-prompt deploys, machine-bound
 3. **age encryption** (`.env.age`) — passphrase-based, committed to git, portable across machines
 
-Scripts live in this repo and get pulled into each project by `init-env-handle.ps1`.
+Scripts live in this repo and get installed into each project by
+`init-env-handle.ps1` (Windows) or `init-env-handle.sh` (Linux).
 Versioned with git tags — the init script pins to its own version.
 
 ## Assumptions
@@ -29,13 +30,17 @@ C:\Projects\
 │   ├── docker-compose.yml
 │   ├── envs\
 │   │   ├── dev.env.age           ← committed to git
-│   │   └── prod.env.age          ← committed to git
-│   ├── .gitignore                ← includes secure-env-handle-and-deploy/
-│   └── secure-env-handle-and-deploy\   ← cloned from this repo, gitignored
+│   │   ├── prod.env.age          ← committed to git
+│   │   └── secrets.keys          ← optional: lists keys for /run/secrets/
+│   ├── .gitignore                ← includes secure-env-handle-and-deploy/, .secrets/
+│   └── secure-env-handle-and-deploy\   ← installed from this repo, gitignored
+│       ├── CLAUDE.md             ← agent instructions (auto-installed, do not edit)
+│       ├── .cursorrules          ← same, for Cursor IDE
 │       ├── deploy.ps1
 │       ├── env-run.ps1
 │       ├── encrypt-env.ps1
 │       ├── decrypt-env.ps1
+│       ├── verify-env.ps1
 │       ├── store-env-to-credentials.ps1
 │       └── generate-env-from-credentials.ps1
 ├── another-project\
@@ -55,6 +60,7 @@ C:\Projects\
 | `decrypt-env.ps1` | `envs/{env}.env.age` → `.env` |
 | `store-env-to-credentials.ps1` | `.env` → DPAPI per-entry store (Windows only) |
 | `generate-env-from-credentials.ps1` | DPAPI store → `.env` for editing (Windows only) |
+| `verify-env.ps1` | Compare .env, DPAPI, and age layers — report mismatches |
 | `init-env-handle.ps1` | Clone repos + deploy env scripts (versioned, with update check) |
 
 ### Linux (Bash)
@@ -65,6 +71,8 @@ C:\Projects\
 | `env-run.sh` | Load env → run any command → clean up (general-purpose) |
 | `encrypt-env.sh` | `.env` → `envs/{env}.env.age` |
 | `decrypt-env.sh` | `envs/{env}.env.age` → `.env` |
+| `verify-env.sh` | Compare .env and age layers — report mismatches |
+| `init-env-handle.sh` | Clone repos + deploy env scripts (Linux equivalent) |
 
 > DPAPI is Windows-only. On Linux, use age encryption for all secret management.
 
@@ -159,6 +167,49 @@ Remove-Item ..\.env
 .\generate-env-from-credentials.ps1 dev
 ```
 
+## Docker Secret File Mounts (optional)
+
+By default, all env vars are injected via `env_file: [.env]`. For sensitive
+values, you can use Docker secret file mounts (`/run/secrets/`) to prevent
+exposure via `docker inspect`, logs, and `/proc/*/environ`.
+
+**If you don't create a manifest file, everything works as before.**
+
+### Enabling Docker secrets
+
+1. Create `envs/secrets.keys` in your project listing which keys are secrets:
+   ```
+   POSTGRES_PASSWORD
+   WECLAPP_API_TOKEN
+   SECRET_KEY
+   ```
+
+2. Add the `secrets:` section to your `docker-compose.yml`:
+   ```yaml
+   secrets:
+     postgres_password:
+       file: .secrets/POSTGRES_PASSWORD
+
+   services:
+     app:
+       env_file: [.env]        # non-secret config
+       secrets:
+         - postgres_password
+       # App reads: /run/secrets/postgres_password
+   ```
+
+3. Update your app code to read from `/run/secrets/` (with env var fallback).
+
+When `envs/secrets.keys` exists, deploy/env-run scripts automatically split
+`.env` into config (stays in `.env`) and secrets (written to `.secrets/KEY`).
+Both are cleaned up after use.
+
+### Migration helper
+
+If you use Claude Code, run `/suggest-secret-variable-split` in your project.
+It scans your docker-compose, .env, and app code, then recommends which
+variables should be secrets and drafts all required changes.
+
 ## Prerequisites
 
 - **age** — `winget install FiloSottile.age` (Windows) or `brew install age` / `apt install age` (Linux)
@@ -171,7 +222,7 @@ Remove-Item ..\.env
 - One `docker-compose.yml` per project — all environment differences via `${VAR}` substitution from `.env`
 - No support for multiple `.env` files or non-Docker deployments
 - DPAPI is Windows-only — Linux uses age encryption only
-- `init-env-handle.ps1` is PowerShell — Linux servers need manual setup or a bash equivalent
+- Bootstrap scripts (`init-env-handle.ps1` / `.sh`) require internet access to download from GitHub
 - Scripts must be run from the `secure-env-handle-and-deploy/` subfolder inside a project
 
 ## Security model
@@ -182,20 +233,21 @@ Remove-Item ..\.env
 | Git repo compromised | `.age` files need passphrase to decrypt |
 | Server compromised (offline) | DPAPI files unreadable without Windows user profile |
 | `.env` on disk | Deleted after deploy; only exists briefly |
+| Secrets in docker inspect/logs | Optional `/run/secrets/` file mounts (via `envs/secrets.keys` manifest) |
 | Passphrase forgotten | Stored in PasswordDepot |
 | This repo compromised | Scripts contain no secrets; pin to audited tag, review before updating |
 
 ## Updating scripts
 
-Re-run `init-env-handle.ps1` — it deletes the old copy and clones the
-version-pinned tag fresh. The script checks for newer versions on startup
-and offers to update itself.
+Re-run `init-env-handle.ps1` (or `.sh`) — it deletes the old copy and downloads
+the version-pinned tag fresh from GitHub. The script checks for newer versions
+on startup and offers to update itself.
 
 ## Adding this to a new project
 
 1. Run `init-env-handle.ps1` (mode 2 for existing projects)
-2. It auto-creates `secure-env-handle-and-deploy/`, updates `.gitignore`,
-   copies `.cursorrules` and `CLAUDE.md` for coding agent support
+2. It auto-creates `secure-env-handle-and-deploy/` (with `CLAUDE.md` and
+   `.cursorrules` for coding agent support), updates `.gitignore`
 3. Create and encrypt your env files from the subfolder
 
 ## Security Notice

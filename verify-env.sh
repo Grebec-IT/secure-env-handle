@@ -90,6 +90,24 @@ if [ $layers_found -lt 2 ]; then
     exit 0
 fi
 
+# -- Load manifest (if present) --------------------------------------------
+manifest="envs/secrets.keys"
+declare -a secret_keys=()
+has_manifest=false
+if [ -f "$manifest" ]; then
+    while IFS= read -r line; do
+        line="$(echo "$line" | xargs)"
+        [ -z "$line" ] && continue
+        [[ "$line" == \#* ]] && continue
+        secret_keys+=("$line")
+    done < "$manifest"
+    if [ ${#secret_keys[@]} -gt 0 ]; then
+        has_manifest=true
+        echo -e "  Manifest:  envs/secrets.keys (${#secret_keys[@]} secret keys)"
+        echo ""
+    fi
+fi
+
 # -- Build associative arrays for comparison --------------------------------
 declare -A env_vals age_vals all_keys
 
@@ -121,22 +139,45 @@ out_of_sync=0
 missing=0
 
 # Header
-printf "  %-35s %-10s %-10s\n" "Key" "env" "age"
-printf "  %-35s %-10s %-10s\n" "-----------------------------------" "----------" "----------"
+suggestions=()
+if $has_manifest; then
+    printf "  %-28s %-8s %-10s %-10s\n" "Key" "type" "env" "age"
+    printf "  %-28s %-8s %-10s %-10s\n" "----------------------------" "--------" "----------" "----------"
+else
+    printf "  %-28s %-10s %-10s\n" "Key" "env" "age"
+    printf "  %-28s %-10s %-10s\n" "----------------------------" "----------" "----------"
+fi
 
 for key in $(echo "${!all_keys[@]}" | tr ' ' '\n' | sort); do
     env_has="${env_vals[$key]+set}"
     age_has="${age_vals[$key]+set}"
 
     display_key="$key"
-    if [ ${#display_key} -gt 33 ]; then
-        display_key="${display_key:0:30}..."
+    if [ ${#display_key} -gt 26 ]; then
+        display_key="${display_key:0:23}..."
+    fi
+
+    # Type classification
+    type_str=""
+    if $has_manifest; then
+        is_secret=false
+        for sk in "${secret_keys[@]}"; do
+            [ "$key" = "$sk" ] && is_secret=true && break
+        done
+        if $is_secret; then
+            type_str="$(printf '%-8s' 'secret')"
+        else
+            type_str="$(printf '%-8s' 'config')"
+            # Heuristic: suggest if key looks sensitive
+            if echo "$key" | grep -qiE 'PASSWORD|SECRET|TOKEN|CREDENTIAL|PRIVATE' || echo "$key" | grep -qE '_API_KEY$'; then
+                suggestions+=("$key")
+            fi
+        fi
     fi
 
     if [ -z "$env_has" ] || [ -z "$age_has" ]; then
-        # Missing from one layer
         missing=$((missing + 1))
-        printf "  %-35s " "$display_key"
+        printf "  %-28s %s" "$display_key" "$type_str"
         if [ -n "$env_has" ]; then
             echo -ne "${GREEN}$(printf '%-10s' 'ok')${NC}"
         else
@@ -148,20 +189,28 @@ for key in $(echo "${!all_keys[@]}" | tr ' ' '\n' | sort); do
             echo -e "${YELLOW}$(printf '%-10s' 'MISSING')${NC}"
         fi
     elif [ "${env_vals[$key]}" = "${age_vals[$key]}" ]; then
-        # In sync
         in_sync=$((in_sync + 1))
-        printf "  %-35s " "$display_key"
+        printf "  %-28s %s" "$display_key" "$type_str"
         echo -e "${GREEN}$(printf '%-10s' 'ok')${NC}${GREEN}$(printf '%-10s' 'ok')${NC}"
     else
-        # Mismatch
         out_of_sync=$((out_of_sync + 1))
-        printf "  %-35s " "$display_key"
+        printf "  %-28s %s" "$display_key" "$type_str"
         env_preview="${env_vals[$key]:0:4}..."
         age_preview="${age_vals[$key]:0:4}..."
         echo -ne "${RED}$(printf '%-10s' "$env_preview")${NC}"
         echo -e "${RED}$(printf '%-10s' "$age_preview")${NC}  ${RED}MISMATCH${NC}"
     fi
 done
+
+# Warn about manifest keys not found in any layer
+if $has_manifest; then
+    for sk in "${secret_keys[@]}"; do
+        if [ -z "${all_keys[$sk]+set}" ]; then
+            echo ""
+            echo -e "  ${YELLOW}WARNING: manifest key '$sk' not found in any layer${NC}"
+        fi
+    done
+fi
 
 # -- Summary ---------------------------------------------------------------
 total_keys=${#all_keys[@]}
@@ -189,5 +238,13 @@ else
     if [ $missing -gt 0 ]; then
         echo -e "  ${YELLOW}NOTE: $missing key(s) missing from one or more layers.${NC}"
     fi
+fi
+
+if [ ${#suggestions[@]} -gt 0 ]; then
+    echo ""
+    echo -e "  ${YELLOW}Suggestion: these keys look sensitive but are NOT in envs/secrets.keys:${NC}"
+    for s in "${suggestions[@]}"; do
+        echo -e "    ${YELLOW}+ $s${NC}"
+    done
 fi
 echo ""

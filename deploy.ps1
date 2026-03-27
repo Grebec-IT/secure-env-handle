@@ -16,6 +16,57 @@ Add-Type -AssemblyName System.Security
 
 $ProjectName = Split-Path $ProjectRoot -Leaf
 
+# -- Helper: split .env into config + secret files -------------------------
+function Split-EnvSecrets {
+    $manifest = Join-Path "envs" "secrets.keys"
+    if (-not (Test-Path $manifest)) { return $false }
+
+    $secretKeys = Get-Content $manifest |
+        ForEach-Object { $_.Trim() } |
+        Where-Object { $_ -and -not $_.StartsWith("#") }
+
+    if ($secretKeys.Count -eq 0) { return $false }
+
+    # Backup full .env before splitting
+    Copy-Item ".env" ".env.full" -Force
+
+    # Parse .env
+    $configLines = @()
+    $splitCount = 0
+    $secretDir = ".secrets"
+    if (-not (Test-Path $secretDir)) { New-Item -ItemType Directory -Path $secretDir -Force | Out-Null }
+
+    Get-Content ".env" | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#")) {
+            $configLines += $_
+            return
+        }
+        $eqIdx = $line.IndexOf("=")
+        if ($eqIdx -le 0) {
+            $configLines += $_
+            return
+        }
+        $key = $line.Substring(0, $eqIdx).Trim()
+        $value = $line.Substring($eqIdx + 1).Trim()
+
+        if ($key -in $secretKeys) {
+            # Write secret file (raw value, no trailing newline)
+            $secretPath = Join-Path $secretDir $key
+            [System.IO.File]::WriteAllText($secretPath, $value)
+            $splitCount++
+        } else {
+            $configLines += $_
+        }
+    }
+
+    # Rewrite .env with config-only entries
+    $configLines | Set-Content -Path ".env" -Encoding UTF8
+
+    Write-Host "      Secrets: $splitCount key(s) -> .secrets/" -ForegroundColor Cyan
+    return $true
+}
+
 Write-Host "========================================"
 Write-Host "  Deploy: $ProjectName"
 Write-Host "========================================"
@@ -101,6 +152,9 @@ if (-not $envLoaded) {
 }
 
 Write-Host "      Loaded from: $fromSource" -ForegroundColor Green
+
+# Split secrets if manifest exists
+$secretsSplit = Split-EnvSecrets
 Write-Host ""
 
 # -- Step 3: Start containers -------------------------------------------
@@ -122,9 +176,10 @@ if ($fromSource -ne "Credential Manager (DPAPI)") {
     Write-Host "Save to Windows Credential Manager for next deploy? (no passphrase needed next time)"
     $save = Read-Host "[Y/n]"
     if ($save -ne "n" -and $save -ne "N") {
-        # Parse .env and encrypt each entry
+        # Parse full .env (use backup if secrets were split out)
+        $envSource = if ($secretsSplit -and (Test-Path ".env.full")) { ".env.full" } else { ".env" }
         $entries = @{}
-        Get-Content ".env" | ForEach-Object {
+        Get-Content $envSource | ForEach-Object {
             $line = $_.Trim()
             if ($line -and -not $line.StartsWith("#")) {
                 $eqIdx = $line.IndexOf("=")
@@ -160,6 +215,13 @@ if (Test-Path ".env") {
             Write-Host "      .env deleted." -ForegroundColor Green
         }
     }
+}
+
+# Clean up secret files and backup
+if (Test-Path ".env.full") { Remove-Item ".env.full" -Force }
+if ($secretsSplit -and (Test-Path ".secrets")) {
+    Remove-Item ".secrets" -Recurse -Force
+    Write-Host "      .secrets/ deleted." -ForegroundColor Green
 }
 
 Write-Host ""

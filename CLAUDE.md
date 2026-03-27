@@ -101,6 +101,49 @@ Linux equivalents: `deploy.sh`, `env-run.sh`, `encrypt-env.sh`, `decrypt-env.sh`
 2. **DPAPI credential store** (`envs/{env}.credentials.json`) — no passphrase, Windows only
 3. **age-encrypted file** (`envs/{env}.env.age`) — asks for passphrase
 
+## Docker Secret File Mounts (optional)
+
+By default, all env vars are injected via `env_file: [.env]`. For sensitive
+values, Docker secret file mounts (`/run/secrets/`) are more secure — they
+are not visible via `docker inspect`, `docker logs`, or `/proc/*/environ`.
+
+**If no manifest exists, everything works as before — no changes needed.**
+
+### Setup
+
+1. Create `envs/secrets.keys` listing which keys are secrets (one per line):
+   ```
+   POSTGRES_PASSWORD
+   WECLAPP_API_TOKEN
+   SECRET_KEY
+   ```
+2. Add `secrets:` section to `docker-compose.yml`:
+   ```yaml
+   secrets:
+     postgres_password:
+       file: .secrets/POSTGRES_PASSWORD
+     weclapp_api_token:
+       file: .secrets/WECLAPP_API_TOKEN
+
+   services:
+     app:
+       env_file: [.env]        # non-secret config
+       secrets:
+         - postgres_password
+         - weclapp_api_token
+       # App reads from /run/secrets/postgres_password
+   ```
+3. Update app code to read secrets from `/run/secrets/` instead of env vars.
+
+### How it works
+
+When `envs/secrets.keys` exists and is non-empty, deploy/env-run scripts
+automatically split the decrypted `.env` into:
+- **`.env`** — non-secret config only (used by `env_file:`)
+- **`.secrets/{KEY}`** — one file per secret (used by `secrets: file:`)
+
+Both are deleted after the command completes.
+
 ## When writing code that needs env vars
 
 - Reference env vars by name (e.g., `DATABASE_URL`, `API_KEY`) — they will be
@@ -166,6 +209,7 @@ These entries must be present in every project using this workflow:
 .env
 *.credentials.json
 secure-env-handle-and-deploy/
+.secrets/
 ```
 
 ## Encryption Reference

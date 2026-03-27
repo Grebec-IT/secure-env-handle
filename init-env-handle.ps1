@@ -20,7 +20,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "1.4.0"
+$Version = "1.5.0"
 $defaultOrg = "Grebec-IT"
 $configPath = Join-Path $env:USERPROFILE ".secure-env-handle.json"
 $targetDir = Get-Location
@@ -88,7 +88,7 @@ function Install-EnvHandle {
 
     # -- Ensure .gitignore contains required entries -----------------------
     $gitignorePath = Join-Path $RepoPath ".gitignore"
-    $requiredEntries = @(".env", "*.credentials.json", "secure-env-handle-and-deploy/")
+    $requiredEntries = @(".env", "*.credentials.json", "secure-env-handle-and-deploy/", ".secrets/")
 
     # Read existing entries (if file exists)
     $existingEntries = @()

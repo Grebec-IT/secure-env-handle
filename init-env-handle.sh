@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-VERSION="1.4.0"
+VERSION="1.5.0"
 DEFAULT_ORG="Grebec-IT"
 CONFIG_PATH="$HOME/.secure-env-handle.json"
 TARGET_DIR="$(pwd)"
@@ -97,7 +97,7 @@ install_env_handle() {
 
     # -- Ensure .gitignore contains required entries ---------------------------
     local gitignore="$repo_path/.gitignore"
-    local required=(".env" "*.credentials.json" "secure-env-handle-and-deploy/")
+    local required=(".env" "*.credentials.json" "secure-env-handle-and-deploy/" ".secrets/")
     local missing=()
 
     for entry in "${required[@]}"; do
