@@ -88,16 +88,9 @@ install_env_handle() {
     done
 
     # Remove files that belong at parent level only
-    for file in init-env-handle.ps1 init-env-handle.sh setup-server.ps1 README.md env_handling.md CLAUDE.md LICENSE; do
+    for file in init-env-handle.ps1 init-env-handle.sh setup-server.ps1 README.md env_handling.md LICENSE; do
         [ -f "$env_handle_dir/$file" ] && rm -f "$env_handle_dir/$file"
     done
-
-    # Copy .cursorrules to project root (Cursor only reads from root)
-    if [ -f "$env_handle_dir/.cursorrules" ]; then
-        cp "$env_handle_dir/.cursorrules" "$repo_path/.cursorrules"
-        rm -f "$env_handle_dir/.cursorrules"
-        echo -e "    .cursorrules - ${GREEN}copied to project root${NC}"
-    fi
 
     # Filter by OS: remove Windows scripts on Linux
     find "$env_handle_dir" -maxdepth 1 -name '*.ps1' -delete 2>/dev/null || true

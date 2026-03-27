@@ -1,5 +1,12 @@
 # Environment Variable Handling — Agent Instructions
 
+> **DO NOT MODIFY THIS FILE.**
+> This file is auto-installed by [secure-env-handle](https://github.com/Grebec-IT/secure-env-handle)
+> and will be overwritten on the next update. It is reference-only documentation
+> for how this project handles secrets and environment variables.
+> If you need to change these instructions, do so in the secure-env-handle
+> repository and re-run the installer.
+
 > This project uses encrypted environment variables. Follow these rules when
 > writing code that depends on configuration or secrets.
 
@@ -52,24 +59,26 @@ in dev vs prod.
 <project>/
   docker-compose.yml
   .env                                  # transient — created by deploy, deleted after
-  .cursorrules                          # this file (Cursor agent instructions)
+  .cursorrules                          # Cursor agent instructions (auto-installed, do not edit)
   envs/
     dev.env.age                         # age-encrypted full .env (committed to git)
     prod.env.age                        # same for prod (committed to git)
     dev.credentials.json                # DPAPI per-entry store (gitignored, Windows only)
     prod.credentials.json               # same for prod (gitignored, Windows only)
   secure-env-handle-and-deploy/
-    CLAUDE.md                           # Claude Code agent instructions (auto-generated)
+    CLAUDE.md                           # Claude Code agent instructions (auto-installed, do not edit)
     deploy.ps1                          # decrypt env + docker compose up
     env-run.ps1                         # load env + run any command + clean up
     encrypt-env.ps1                     # .env → envs/{env}.env.age
     decrypt-env.ps1                     # envs/{env}.env.age → .env
     store-env-to-credentials.ps1        # .env → DPAPI per-entry store
     generate-env-from-credentials.ps1   # DPAPI store → .env
+    verify-env.ps1                      # compare all env layers for sync
     deploy.sh                           # Linux: decrypt + docker compose up
     env-run.sh                          # Linux: load env + run any command + clean up
     encrypt-env.sh                      # Linux: .env → .age
     decrypt-env.sh                      # Linux: .age → .env
+    verify-env.sh                       # Linux: compare all env layers for sync
 ```
 
 ## Available Scripts (run from `secure-env-handle-and-deploy/`)
@@ -82,6 +91,7 @@ in dev vs prod.
 | `decrypt-env.ps1 {dev\|prod}` | Decrypt `envs/{env}.env.age` → `.env` |
 | `store-env-to-credentials.ps1 {dev\|prod}` | Store `.env` entries in DPAPI (Windows, machine-bound) |
 | `generate-env-from-credentials.ps1 {dev\|prod}` | Regenerate `.env` from DPAPI store |
+| `verify-env.ps1 {dev\|prod}` | Compare .env, DPAPI, and age layers — report mismatches |
 
 Linux equivalents: `deploy.sh`, `env-run.sh`, `encrypt-env.sh`, `decrypt-env.sh`.
 
@@ -155,6 +165,7 @@ These entries must be present in every project using this workflow:
 ```
 .env
 *.credentials.json
+secure-env-handle-and-deploy/
 ```
 
 ## Encryption Reference
