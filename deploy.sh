@@ -6,8 +6,8 @@
 # Operates on the parent project directory.
 #
 # Env source priority:
-#   1. Encrypted .age file (asks for passphrase)
-#   2. Existing .env file
+#   1. Existing .env file (allows manual edits)
+#   2. Encrypted .age file (asks for passphrase)
 #
 # Note: No DPAPI on Linux — only age encryption is supported.
 
@@ -46,28 +46,28 @@ echo "[2/3] Loading environment..."
 env_loaded=false
 from_source=""
 
-# Try 1: Encrypted .age file
+# Try 1: Existing .env file (highest priority — allows manual edits)
+if [ -f ".env" ]; then
+    env_loaded=true
+    from_source="existing .env file"
+fi
+
+# Try 2: Encrypted .age file
 age_file="envs/${ENV_NAME}.env.age"
 if [ "$env_loaded" = false ] && [ -f "$age_file" ]; then
     if ! command -v age &>/dev/null; then
         echo "ERROR: age not found. Install with: brew install age (or apt install age)" >&2
         exit 1
     fi
-    echo "      Decrypting $age_file..."
+    echo "      No .env found. Decrypting $age_file..."
     echo "      Enter passphrase:"
     age --decrypt --output .env "$age_file"
     env_loaded=true
     from_source="age-encrypted file"
 fi
 
-# Try 2: Existing .env
-if [ "$env_loaded" = false ] && [ -f ".env" ]; then
-    env_loaded=true
-    from_source="existing .env file"
-fi
-
 if [ "$env_loaded" = false ]; then
-    echo "ERROR: No env source found. Run encrypt-env.sh first." >&2
+    echo "ERROR: No env source found. Create a .env file or run encrypt-env.sh first." >&2
     exit 1
 fi
 

@@ -4,17 +4,18 @@ Centralized deploy and secret management scripts for Docker projects using **age
 
 ## How it works
 
-Two layers of secret storage:
+Three layers of secret storage, checked in priority order:
 
-1. **age encryption** (`.env.age`) — passphrase-based, committed to git, portable across machines
+1. **Existing `.env` file** — used as-is if present (allows manual edits before deploy)
 2. **Windows DPAPI** (`.credentials.json`) — per-entry encryption, zero-prompt deploys, machine-bound
+3. **age encryption** (`.env.age`) — passphrase-based, committed to git, portable across machines
 
 Scripts live in this repo and get pulled into each project by `init-env-handle.ps1`.
 Versioned with git tags — the init script pins to its own version.
 
 ## Assumptions
 
-- Each project uses a simple **`docker-compose.yml` + `.env`** pattern
+- Each project uses a single **`docker-compose.yml`** with `${VAR}` substitution from `.env`
 - The `envs/` folder lives in the project root
 - One shared passphrase across all projects (stored in PasswordDepot or equivalent)
 - **age** is installed on the target machine
@@ -32,6 +33,7 @@ C:\Projects\
 │   ├── .gitignore                ← includes secure-env-handle-and-deploy/
 │   └── secure-env-handle-and-deploy\   ← cloned from this repo, gitignored
 │       ├── deploy.ps1
+│       ├── env-run.ps1
 │       ├── encrypt-env.ps1
 │       ├── decrypt-env.ps1
 │       ├── store-env-to-credentials.ps1
@@ -47,7 +49,8 @@ C:\Projects\
 
 | Script | Purpose |
 |---|---|
-| `deploy.ps1` | Decrypt env → docker compose up → optional DPAPI save |
+| `deploy.ps1` | Load env → docker compose up → optional DPAPI save |
+| `env-run.ps1` | Load env → run any command → clean up (general-purpose) |
 | `encrypt-env.ps1` | `.env` → `envs/{env}.env.age` |
 | `decrypt-env.ps1` | `envs/{env}.env.age` → `.env` |
 | `store-env-to-credentials.ps1` | `.env` → DPAPI per-entry store (Windows only) |
@@ -58,7 +61,8 @@ C:\Projects\
 
 | Script | Purpose |
 |---|---|
-| `deploy.sh` | Decrypt env → docker compose up |
+| `deploy.sh` | Load env → docker compose up |
+| `env-run.sh` | Load env → run any command → clean up (general-purpose) |
 | `encrypt-env.sh` | `.env` → `envs/{env}.env.age` |
 | `decrypt-env.sh` | `envs/{env}.env.age` → `.env` |
 
@@ -84,7 +88,7 @@ C:\Projects\
 cd sobekon-db\secure-env-handle-and-deploy
 .\deploy.ps1
 # → select dev/prod
-# → decrypts .age (or loads from DPAPI)
+# → uses .env if present, else DPAPI, else decrypts .age
 # → starts containers
 # → offers to save to DPAPI for next time
 # → deletes .env
@@ -96,9 +100,40 @@ cd sobekon-db\secure-env-handle-and-deploy
 cd sobekon-db/secure-env-handle-and-deploy
 ./deploy.sh
 # → select dev/prod
-# → decrypts .age
+# → uses .env if present, else decrypts .age
 # → starts containers
 # → deletes .env
+```
+
+### Run arbitrary commands with env-run
+
+`env-run` is the general-purpose entry point for any Docker operation that needs
+secrets. It loads `.env`, runs your command, and cleans up afterward.
+
+```powershell
+# Run tests
+.\env-run.ps1 dev "docker compose run --rm app pytest"
+
+# Open a shell in a running container
+.\env-run.ps1 dev "docker compose exec app bash"
+
+# Run a one-off command
+.\env-run.ps1 prod "docker compose exec app python manage.py collectstatic"
+```
+
+**Destructive commands require typing a confirmation word:**
+
+```powershell
+# Migration — requires typing "migrate"
+.\env-run.ps1 dev "docker compose exec app python manage.py migrate"
+
+# Data reset (down -v, volume rm, etc.) — requires typing "reset"
+.\env-run.ps1 dev "docker compose down -v"
+```
+
+Linux:
+```bash
+./env-run.sh dev "docker compose run --rm app pytest"
 ```
 
 ### Encrypt/decrypt secrets
@@ -133,7 +168,7 @@ Remove-Item ..\.env
 
 ## Limitations
 
-- Only works with projects that use a single `docker-compose.yml` + `.env` pattern
+- One `docker-compose.yml` per project — all environment differences via `${VAR}` substitution from `.env`
 - No support for multiple `.env` files or non-Docker deployments
 - DPAPI is Windows-only — Linux uses age encryption only
 - `init-env-handle.ps1` is PowerShell — Linux servers need manual setup or a bash equivalent

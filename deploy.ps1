@@ -5,9 +5,9 @@
 # Operates on the parent project directory.
 #
 # Env source priority:
-#   1. DPAPI credential store (envs/{env}.credentials.json)
-#   2. Encrypted .age file (asks for passphrase)
-#   3. Existing .env file
+#   1. Existing .env file (allows manual edits)
+#   2. DPAPI credential store (envs/{env}.credentials.json)
+#   3. Encrypted .age file (asks for passphrase)
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
@@ -45,7 +45,13 @@ Write-Host "[2/3] Loading environment..." -ForegroundColor Cyan
 $envLoaded = $false
 $fromSource = ""
 
-# Try 1: DPAPI credential store
+# Try 1: Existing .env file (highest priority — allows manual edits)
+if (Test-Path ".env") {
+    $envLoaded = $true
+    $fromSource = "existing .env file"
+}
+
+# Try 2: DPAPI credential store
 $credFile = Join-Path "envs" "$EnvName.credentials.json"
 if ((-not $envLoaded) -and (Test-Path $credFile)) {
     $store = Get-Content -Path $credFile -Raw | ConvertFrom-Json
@@ -69,7 +75,7 @@ if ((-not $envLoaded) -and (Test-Path $credFile)) {
     }
 }
 
-# Try 2: Encrypted .age file
+# Try 3: Encrypted .age file
 if (-not $envLoaded) {
     $ageFile = Join-Path "envs" "$EnvName.env.age"
     if (Test-Path $ageFile) {
@@ -77,7 +83,7 @@ if (-not $envLoaded) {
             Write-Error "age not found. Install with: winget install FiloSottile.age"
             exit 1
         }
-        Write-Host "      No credential store found. Decrypting $ageFile..."
+        Write-Host "      No .env or credential store found. Decrypting $ageFile..."
         Write-Host "      Enter passphrase:"
         age --decrypt --output .env $ageFile
         if ($LASTEXITCODE -ne 0) {
@@ -89,16 +95,8 @@ if (-not $envLoaded) {
     }
 }
 
-# Try 3: Existing .env
 if (-not $envLoaded) {
-    if (Test-Path ".env") {
-        $envLoaded = $true
-        $fromSource = "existing .env file"
-    }
-}
-
-if (-not $envLoaded) {
-    Write-Error "No env source found. Run store-env-to-credentials.ps1 or encrypt-env.ps1 first."
+    Write-Error "No env source found. Create a .env file, run store-env-to-credentials.ps1, or encrypt-env.ps1 first."
     exit 1
 }
 
