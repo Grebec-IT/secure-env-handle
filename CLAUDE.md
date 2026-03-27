@@ -1,3 +1,23 @@
+# secure-env-handle — Development Notes
+
+## Versioning
+
+This repo uses **git tags** (semver: `v1.0.0`, `v1.1.0`, etc.) to version releases.
+`init-env-handle.ps1` embeds `$Version` and clones the matching tag into target projects.
+
+**When pushing changes, always push tags too:**
+```
+git push && git push --tags
+```
+
+When bumping a version:
+1. Update `$Version` in `init-env-handle.ps1`
+2. Commit
+3. Create annotated tag: `git tag -a v{X.Y.Z} -m "v{X.Y.Z}: description"`
+4. Push with tags: `git push && git push --tags`
+
+---
+
 # Environment Variable Handling — Agent Instructions
 
 > This project uses encrypted environment variables. Follow these rules when
@@ -79,6 +99,7 @@ These entries must be present in every project using this workflow:
 ```
 .env
 *.credentials.json
+secure-env-handle-and-deploy/
 ```
 
 ## Encryption Reference
