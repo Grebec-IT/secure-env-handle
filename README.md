@@ -9,7 +9,8 @@ Two layers of secret storage:
 1. **age encryption** (`.env.age`) — passphrase-based, committed to git, portable across machines
 2. **Windows DPAPI** (`.credentials.json`) — per-entry encryption, zero-prompt deploys, machine-bound
 
-Scripts live in this repo and get pulled into each project by `setup-server.ps1`.
+Scripts live in this repo and get pulled into each project by `init-env-handle.ps1`.
+Versioned with git tags — the init script pins to its own version.
 
 ## Assumptions
 
@@ -22,7 +23,7 @@ Scripts live in this repo and get pulled into each project by `setup-server.ps1`
 
 ```
 C:\Projects\
-├── setup-server.ps1              ← manually copied here (entry point)
+├── init-env-handle.ps1              ← manually copied here (entry point)
 ├── sobekon-db\
 │   ├── docker-compose.yml
 │   ├── envs\
@@ -51,7 +52,7 @@ C:\Projects\
 | `decrypt-env.ps1` | `envs/{env}.env.age` → `.env` |
 | `store-env-to-credentials.ps1` | `.env` → DPAPI per-entry store (Windows only) |
 | `generate-env-from-credentials.ps1` | DPAPI store → `.env` for editing (Windows only) |
-| `setup-server.ps1` | First-time server setup: clone repos + pull env scripts |
+| `init-env-handle.ps1` | Clone repos + deploy env scripts (versioned, with update check) |
 
 ### Linux (Bash)
 
@@ -67,11 +68,11 @@ C:\Projects\
 
 ### First-time server setup
 
-1. Download `setup-server.ps1` from this repo and place it in your projects directory
+1. Download `init-env-handle.ps1` from this repo and place it in your projects directory
 2. Run it:
 
 ```powershell
-.\setup-server.ps1
+.\init-env-handle.ps1
 # → enter GitHub token (masked, discarded after use)
 # → select repos to clone
 # → each repo gets a secure-env-handle-and-deploy/ subfolder with the right scripts
@@ -128,14 +129,14 @@ Remove-Item ..\.env
 - **age** — `winget install FiloSottile.age` (Windows) or `brew install age` / `apt install age` (Linux)
 - **git**
 - **docker + docker compose**
-- **GitHub fine-grained token** (read-only Contents) for `setup-server.ps1`
+- **GitHub fine-grained token** (read-only Contents) for `init-env-handle.ps1`
 
 ## Limitations
 
 - Only works with projects that use a single `docker-compose.yml` + `.env` pattern
 - No support for multiple `.env` files or non-Docker deployments
 - DPAPI is Windows-only — Linux uses age encryption only
-- `setup-server.ps1` is PowerShell — Linux servers need manual setup or a bash equivalent
+- `init-env-handle.ps1` is PowerShell — Linux servers need manual setup or a bash equivalent
 - Scripts must be run from the `secure-env-handle-and-deploy/` subfolder inside a project
 
 ## Security model
@@ -147,22 +148,38 @@ Remove-Item ..\.env
 | Server compromised (offline) | DPAPI files unreadable without Windows user profile |
 | `.env` on disk | Deleted after deploy; only exists briefly |
 | Passphrase forgotten | Stored in PasswordDepot |
-| This repo compromised | Contains only scripts, no secrets |
+| This repo compromised | Scripts contain no secrets; pin to audited tag, review before updating |
 
 ## Updating scripts
 
-When scripts are updated in this repo, run `setup-server.ps1` again to pull the latest version into all projects. Or manually:
-
-```bash
-cd <project>/secure-env-handle-and-deploy
-git pull
-```
+Re-run `init-env-handle.ps1` — it deletes the old copy and clones the
+version-pinned tag fresh. The script checks for newer versions on startup
+and offers to update itself.
 
 ## Adding this to a new project
 
-1. Add to the project's `.gitignore`:
-   ```
-   secure-env-handle-and-deploy/
-   ```
-2. Run `setup-server.ps1` (it will auto-create the subfolder)
+1. Run `init-env-handle.ps1` (mode 2 for existing projects)
+2. It auto-creates `secure-env-handle-and-deploy/`, updates `.gitignore`,
+   copies `.cursorrules` and `CLAUDE.md` for coding agent support
 3. Create and encrypt your env files from the subfolder
+
+## Security Notice
+
+**These scripts handle your secrets.** Before using them, you should understand
+what they do:
+
+- **Review the code.** The scripts are short and readable. Verify they only
+  perform local encryption/decryption and do not transmit data anywhere.
+- **Pin to a version.** `init-env-handle.ps1` clones a specific git tag. Audit
+  that tag once, then stick with it until you've reviewed the next release.
+- **Fork if in doubt.** If you don't want to trust upstream updates, fork the
+  repo and control your own copy.
+
+Like any open-source dependency, using this repo means trusting its maintainers.
+The full git history is public — every change is visible and attributable. If you
+find a security issue, please report it privately — see [SECURITY.md](SECURITY.md).
+This software is provided under the [MIT License](LICENSE) with no warranty.
+
+## License
+
+[MIT](LICENSE)
