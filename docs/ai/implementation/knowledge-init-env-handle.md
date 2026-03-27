@@ -57,10 +57,10 @@ The core function. Downloads and installs env-handle scripts into a target proje
 3. **Extract** -- extracts to temp, moves inner folder to target path, cleans up temp files
 4. **Validate** (SH only) -- verifies the download is a real tarball, not a 404 HTML page
 5. **Prune directories** -- removes `docs/`, `.claude/`, `.github/` (source repo artifacts)
-6. **Prune files** -- removes `init-env-handle.ps1`, `init-env-handle.sh`, `setup-server.ps1`, `README.md`, `env_handling.md`, `CLAUDE.md`, `LICENSE`
-7. **Copy .cursorrules** -- moves to project root (Cursor IDE reads from root only)
+6. **Prune files** -- removes `init-env-handle.ps1`, `init-env-handle.sh`, `setup-server.ps1`, `README.md`, `env_handling.md`, `LICENSE`
+7. **Keep agent instructions** -- `CLAUDE.md` and `.cursorrules` stay in `secure-env-handle-and-deploy/` (not copied to project root, to avoid overwriting project files)
 8. **OS filter** -- Windows: removes `.sh` scripts. Linux: removes `.ps1` scripts.
-9. **Gitignore validation** -- checks for required entries (`.env`, `*.credentials.json`, `secure-env-handle-and-deploy/`), prompts to append if missing
+9. **Gitignore validation** -- checks for required entries (`.env`, `*.credentials.json`, `secure-env-handle-and-deploy/`, `.secrets/`), prompts to append if missing
 
 ### Main Script Flow
 
@@ -179,9 +179,8 @@ flowchart LR
     end
 
     subgraph "Configure"
-        DEL_FILES --> CURSOR[".cursorrules -> project root"]
-        CURSOR --> OS_FILTER["Remove opposite-OS scripts"]
-        OS_FILTER --> GITIGNORE["Validate .gitignore entries"]
+        DEL_FILES --> OS_FILTER["Remove opposite-OS scripts"]
+        OS_FILTER --> GITIGNORE["Validate .gitignore entries<br/>(.env, *.credentials.json,<br/>secure-env-handle-and-deploy/,<br/>.secrets/)"]
     end
 ```
 
@@ -189,17 +188,17 @@ flowchart LR
 
 ```
 <project>/
-  .cursorrules                          (copied to root)
   .gitignore                            (entries appended if missing)
   secure-env-handle-and-deploy/
-    CLAUDE.md                           (agent instructions)
-    .cursorrules
+    CLAUDE.md                           (agent instructions, do not edit)
+    .cursorrules                        (same, for Cursor IDE)
 
     # Windows (PS1 install):
     deploy.ps1
     env-run.ps1
     encrypt-env.ps1
     decrypt-env.ps1
+    verify-env.ps1
     store-env-to-credentials.ps1
     generate-env-from-credentials.ps1
 
@@ -208,6 +207,7 @@ flowchart LR
     env-run.sh
     encrypt-env.sh
     decrypt-env.sh
+    verify-env.sh
 ```
 
 ---
@@ -237,15 +237,16 @@ flowchart LR
 - **Token handling**: PS1 reads as `SecureString`, SH uses `read -s`. Both clear token after use.
 - **Token in clone URL**: `x-access-token:{token}@github.com` -- visible in process list during clone, but short-lived
 - **No token persistence**: never written to disk or stored beyond the session
-- **Gitignore enforcement**: actively checks and prompts to add security-critical entries
+- **Gitignore enforcement**: actively checks and prompts to add security-critical entries (`.env`, `*.credentials.json`, `secure-env-handle-and-deploy/`, `.secrets/`)
 
 ### Design Decisions
 
 - **Zip/tar download over git clone** (v1.3.0): eliminates detached HEAD warnings and `.git` directory. No git needed for script installation, only for project repo cloning in Mode 1.
 - **Org prompt in Mode 1 only**: Mode 2 works on local directories and doesn't need org selection. The archive download URL uses the cached/default org silently.
-- **Configurable org with cache** (v1.4.0-dev): first run prompts, subsequent runs use cached value. `-a` flag forces re-prompt. Stored in `~/.secure-env-handle.json`.
+- **Configurable org with cache** (v1.4.0): first run prompts, subsequent runs use cached value. `-a` flag forces re-prompt. Stored in `~/.secure-env-handle.json`.
 - **Cannot self-update**: script is locked while running (PS1) or should be replaced cleanly (SH). The update flow provides the URL/command and exits.
 - **OS filtering**: ships all scripts but removes the wrong platform's scripts on install.
+- **Agent files stay in subfolder** (v1.5.0): `.cursorrules` is no longer copied to project root to avoid overwriting the project's own `.cursorrules`. Both CLAUDE.md and .cursorrules stay in `secure-env-handle-and-deploy/`.
 - **Interactive gitignore**: prompts rather than silently modifying.
 
 ---
@@ -257,8 +258,8 @@ flowchart LR
 | Analysis date | 2026-03-27 |
 | Depth | Full (both platform variants, all functions and flows) |
 | Files analyzed | init-env-handle.ps1, init-env-handle.sh |
-| Repo version | v1.3.0 (unreleased changes pending for v1.4.0) |
-| Related knowledge | [knowledge-env-workflow-scripts.md](knowledge-env-workflow-scripts.md), [knowledge-repo-overview.md](knowledge-repo-overview.md) |
+| Repo version | v1.5.0 |
+| Related knowledge | [knowledge-env-workflow-scripts.md](knowledge-env-workflow-scripts.md), [knowledge-repo-overview.md](knowledge-repo-overview.md), [knowledge-docker-secrets-split.md](knowledge-docker-secrets-split.md) |
 
 ---
 
