@@ -13,7 +13,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$Version = "1.2.0"
+$Version = "1.3.0"
 $org = "Grebec-IT"
 $targetDir = Get-Location
 $envHandleRepo = "https://github.com/Grebec-IT/secure-env-handle.git"
@@ -31,23 +31,36 @@ function Install-EnvHandle {
 
     $envHandleDir = Join-Path $RepoPath "secure-env-handle-and-deploy"
 
-    # Always fresh clone at the pinned version (folder is gitignored)
+    # Always fresh download at the pinned version (folder is gitignored)
     if (Test-Path $envHandleDir) {
         Remove-Item $envHandleDir -Recurse -Force
         Write-Host "    env-scripts - removed old copy" -ForegroundColor Yellow
     }
 
-    Write-Host "    env-scripts - cloning v$Version..." -ForegroundColor Cyan
-    $exit = Invoke-Git "clone --branch v${Version} --depth 1 ${envHandleRepo} ${envHandleDir}"
-    if ($exit -ne 0) {
+    Write-Host "    env-scripts - downloading v$Version..." -ForegroundColor Cyan
+    $archiveUrl = "https://github.com/${org}/secure-env-handle/archive/refs/tags/v${Version}.zip"
+    $tempZip = Join-Path $env:TEMP "secure-env-handle-v${Version}.zip"
+    $tempExtract = Join-Path $env:TEMP "secure-env-handle-extract"
+
+    try {
+        Invoke-WebRequest -Uri $archiveUrl -OutFile $tempZip -UseBasicParsing -ErrorAction Stop
+    } catch {
         Write-Host "    env-scripts - FAILED (tag v$Version may not exist)" -ForegroundColor Red
         return
-    } else {
-        Write-Host "    env-scripts - installed v$Version" -ForegroundColor Green
     }
 
-    # Remove .git and directories that belong to the source repo only
-    foreach ($removeDir in @(".git", "docs", ".claude")) {
+    # Extract and move the inner folder to the target path
+    if (Test-Path $tempExtract) { Remove-Item $tempExtract -Recurse -Force }
+    Expand-Archive -Path $tempZip -DestinationPath $tempExtract -Force
+    $innerDir = Get-ChildItem -Path $tempExtract -Directory | Select-Object -First 1
+    Move-Item $innerDir.FullName $envHandleDir
+    Remove-Item $tempZip -Force
+    Remove-Item $tempExtract -Recurse -Force
+
+    Write-Host "    env-scripts - installed v$Version" -ForegroundColor Green
+
+    # Remove directories that belong to the source repo only
+    foreach ($removeDir in @("docs", ".claude", ".github")) {
         $nested = Join-Path $envHandleDir $removeDir
         if (Test-Path $nested) { Remove-Item $nested -Recurse -Force }
     }
