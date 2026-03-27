@@ -13,7 +13,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$Version = "1.1.0"
+$Version = "1.2.0"
 $org = "Grebec-IT"
 $targetDir = Get-Location
 $envHandleRepo = "https://github.com/Grebec-IT/secure-env-handle.git"
@@ -46,8 +46,14 @@ function Install-EnvHandle {
         Write-Host "    env-scripts - installed v$Version" -ForegroundColor Green
     }
 
+    # Remove .git and directories that belong to the source repo only
+    foreach ($removeDir in @(".git", "docs", ".claude")) {
+        $nested = Join-Path $envHandleDir $removeDir
+        if (Test-Path $nested) { Remove-Item $nested -Recurse -Force }
+    }
+
     # Remove files that belong at parent level only
-    foreach ($removeFile in @("init-env-handle.ps1", "setup-server.ps1", "README.md", "env_handling.md")) {
+    foreach ($removeFile in @("init-env-handle.ps1", "setup-server.ps1", "README.md", "env_handling.md", "CLAUDE.md", "LICENSE")) {
         $nested = Join-Path $envHandleDir $removeFile
         if (Test-Path $nested) { Remove-Item $nested -Force }
     }
