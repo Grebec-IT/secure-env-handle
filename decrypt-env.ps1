@@ -58,9 +58,9 @@ $manifest = Join-Path "envs" "secrets.keys"
 $shouldSplit = (-not $Full) -and (Test-Path $manifest)
 
 if ($shouldSplit) {
-    $secretKeys = Get-Content $manifest |
+    $secretKeys = @(Get-Content $manifest |
         ForEach-Object { $_.Trim() } |
-        Where-Object { $_ -and -not $_.StartsWith("#") }
+        Where-Object { $_ -and -not $_.StartsWith("#") })
     if ($secretKeys.Count -eq 0) { $shouldSplit = $false }
 }
 
@@ -83,16 +83,17 @@ if ($shouldSplit) {
     if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
     New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
 
-    Get-Content $tempFile | ForEach-Object {
-        $line = $_.Trim()
+    $tempLines = Get-Content $tempFile
+    foreach ($rawLine in $tempLines) {
+        $line = $rawLine.Trim()
         if (-not $line -or $line.StartsWith("#")) {
-            $configLines += $_
-            return
+            $configLines += $rawLine
+            continue
         }
         $eqIdx = $line.IndexOf("=")
         if ($eqIdx -le 0) {
-            $configLines += $_
-            return
+            $configLines += $rawLine
+            continue
         }
         $key = $line.Substring(0, $eqIdx).Trim()
         $value = $line.Substring($eqIdx + 1).Trim()
@@ -103,7 +104,7 @@ if ($shouldSplit) {
             [System.IO.File]::WriteAllText($secretPath, $value)
             $splitCount++
         } else {
-            $configLines += $_
+            $configLines += $rawLine
         }
     }
 

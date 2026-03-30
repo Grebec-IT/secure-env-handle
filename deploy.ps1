@@ -32,32 +32,33 @@ function Split-EnvSecrets {
     $manifest = Join-Path "envs" "secrets.keys"
     if (-not (Test-Path $manifest)) { return $false }
 
-    $secretKeys = Get-Content $manifest |
+    $secretKeys = @(Get-Content $manifest |
         ForEach-Object { $_.Trim() } |
-        Where-Object { $_ -and -not $_.StartsWith("#") }
+        Where-Object { $_ -and -not $_.StartsWith("#") })
 
     if ($secretKeys.Count -eq 0) { return $false }
 
     # Parse source file and split
     $configLines = @()
     $splitCount = 0
+    $secretDir = ".secrets"
 
     if ($WriteSecrets) {
-        $secretDir = ".secrets"
         if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
         New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
     }
 
-    Get-Content $SourceFile | ForEach-Object {
-        $line = $_.Trim()
+    $lines = Get-Content $SourceFile
+    foreach ($rawLine in $lines) {
+        $line = $rawLine.Trim()
         if (-not $line -or $line.StartsWith("#")) {
-            $configLines += $_
-            return
+            $configLines += $rawLine
+            continue
         }
         $eqIdx = $line.IndexOf("=")
         if ($eqIdx -le 0) {
-            $configLines += $_
-            return
+            $configLines += $rawLine
+            continue
         }
         $key = $line.Substring(0, $eqIdx).Trim()
         $value = $line.Substring($eqIdx + 1).Trim()
@@ -70,7 +71,7 @@ function Split-EnvSecrets {
             }
             $splitCount++
         } else {
-            $configLines += $_
+            $configLines += $rawLine
         }
     }
 
