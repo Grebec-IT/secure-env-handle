@@ -120,7 +120,15 @@ from_source=""
 
 # Try 1: Existing .env file (highest priority — allows manual edits)
 if [ -f ".env" ]; then
+    # Merge .env (config) + .secrets/ (secrets) into .env.full
     cp .env .env.full
+    [ -n "$(tail -c 1 .env.full 2>/dev/null)" ] && echo "" >> .env.full
+    if [ -d ".secrets" ]; then
+        for f in .secrets/*; do
+            [ -f "$f" ] || continue
+            echo "$(basename "$f")=$(cat "$f")" >> .env.full
+        done
+    fi
     env_loaded=true
     from_source="existing .env file"
 fi

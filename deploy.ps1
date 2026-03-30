@@ -120,7 +120,14 @@ $fromSource = ""
 
 # Try 1: Existing .env file (highest priority — allows manual edits)
 if (Test-Path ".env") {
-    Copy-Item ".env" ".env.full" -Force
+    # Merge .env (config) + .secrets/ (secrets) into .env.full
+    $mergedLines = @(Get-Content ".env")
+    if (Test-Path ".secrets") {
+        foreach ($file in (Get-ChildItem ".secrets" -File -ErrorAction SilentlyContinue)) {
+            $mergedLines += "$($file.Name)=$([System.IO.File]::ReadAllText($file.FullName))"
+        }
+    }
+    $mergedLines | Set-Content ".env.full" -Encoding UTF8
     $envLoaded = $true
     $fromSource = "existing .env file"
 }
