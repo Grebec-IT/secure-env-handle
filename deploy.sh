@@ -9,6 +9,11 @@
 #   1. Existing .env file (allows manual edits)
 #   2. Encrypted .age file (asks for passphrase)
 #
+# When envs/secrets.keys exists, the loaded env is automatically split:
+#   - .env contains config-only entries (used by env_file:)
+#   - .secrets/KEY files contain secret values (used by secrets: file:)
+# Secrets never appear in .env — not even temporarily.
+#
 # Note: No DPAPI on Linux — only age encryption is supported.
 
 set -euo pipefail
@@ -17,8 +22,9 @@ cd "$PROJECT_ROOT"
 
 PROJECT_NAME="$(basename "$PROJECT_ROOT")"
 
-# -- Helper: split .env into config + secret files -------------------------
+# -- Helper: split full env into config + secret files -------------------------
 split_env_secrets() {
+    local source_file="${1:-.env.full}"
     local manifest="envs/secrets.keys"
     [ -f "$manifest" ] || return 1
 
@@ -31,9 +37,6 @@ split_env_secrets() {
     done < "$manifest"
 
     [ ${#secret_keys[@]} -eq 0 ] && return 1
-
-    # Backup full .env before splitting
-    cp .env .env.full
 
     local secret_dir=".secrets"
     mkdir -p "$secret_dir"
@@ -64,9 +67,9 @@ split_env_secrets() {
         else
             config_lines+="$line"$'\n'
         fi
-    done < .env
+    done < "$source_file"
 
-    # Rewrite .env with config-only entries
+    # Write config-only .env — secrets never appear in this file
     printf '%s' "$config_lines" > .env
 
     echo "      Secrets: $split_count key(s) -> .secrets/"
@@ -96,7 +99,8 @@ esac
 echo "Selected: $ENV_NAME"
 echo ""
 
-# -- Step 2: Load .env --------------------------------------------------
+# -- Step 2: Load env into .env.full ------------------------------------
+# All sources load into .env.full first — secrets never touch .env directly.
 echo "[2/3] Loading environment..."
 
 env_loaded=false
@@ -104,6 +108,7 @@ from_source=""
 
 # Try 1: Existing .env file (highest priority — allows manual edits)
 if [ -f ".env" ]; then
+    cp .env .env.full
     env_loaded=true
     from_source="existing .env file"
 fi
@@ -117,7 +122,7 @@ if [ "$env_loaded" = false ] && [ -f "$age_file" ]; then
     fi
     echo "      No .env found. Decrypting $age_file..."
     echo "      Enter passphrase:"
-    age --decrypt --output .env "$age_file"
+    age --decrypt --output .env.full "$age_file"
     env_loaded=true
     from_source="age-encrypted file"
 fi
@@ -129,10 +134,13 @@ fi
 
 echo "      Loaded from: $from_source"
 
-# Split secrets if manifest exists
+# Split .env.full → .env (config) + .secrets/ (secrets)
 secrets_split=false
-if split_env_secrets; then
+if split_env_secrets ".env.full"; then
     secrets_split=true
+else
+    # No secrets manifest — full content becomes .env
+    mv .env.full .env
 fi
 echo ""
 
@@ -153,11 +161,13 @@ if [ "$del" != "n" ] && [ "$del" != "N" ]; then
     echo "      .env deleted."
 fi
 
-# Clean up secret files and backup
+# Clean up intermediate file
 rm -f .env.full
-if [ "$secrets_split" = true ] && [ -d ".secrets" ]; then
-    rm -rf .secrets
-    echo "      .secrets/ deleted."
+
+# .secrets/ persists — Docker Compose bind-mounts these into containers.
+# Cleaned up on 'docker compose down' via env-run.
+if [ "$secrets_split" = true ]; then
+    echo "      .secrets/ kept (required by running containers)."
 fi
 
 echo ""

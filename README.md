@@ -32,7 +32,7 @@ C:\Projects\
 │   │   ├── dev.env.age           ← committed to git
 │   │   ├── prod.env.age          ← committed to git
 │   │   └── secrets.keys          ← optional: lists keys for /run/secrets/
-│   ├── .gitignore                ← includes secure-env-handle-and-deploy/, .secrets/
+│   ├── .gitignore                ← includes secure-env-handle-and-deploy/, .secrets/, .env.full
 │   └── secure-env-handle-and-deploy\   ← installed from this repo, gitignored
 │       ├── CLAUDE.md             ← agent instructions (auto-installed, do not edit)
 │       ├── .cursorrules          ← same, for Cursor IDE
@@ -57,7 +57,7 @@ C:\Projects\
 | `deploy.ps1` | Load env → docker compose up → optional DPAPI save |
 | `env-run.ps1` | Load env → run any command → clean up (general-purpose) |
 | `encrypt-env.ps1` | `.env` → `envs/{env}.env.age` |
-| `decrypt-env.ps1` | `envs/{env}.env.age` → `.env` |
+| `decrypt-env.ps1` | `envs/{env}.env.age` → `.env` + `.secrets/` (auto-split; `-Full` skips) |
 | `store-env-to-credentials.ps1` | `.env` → DPAPI per-entry store (Windows only) |
 | `generate-env-from-credentials.ps1` | DPAPI store → `.env` for editing (Windows only) |
 | `verify-env.ps1` | Compare .env, DPAPI, and age layers — report mismatches |
@@ -70,7 +70,7 @@ C:\Projects\
 | `deploy.sh` | Load env → docker compose up |
 | `env-run.sh` | Load env → run any command → clean up (general-purpose) |
 | `encrypt-env.sh` | `.env` → `envs/{env}.env.age` |
-| `decrypt-env.sh` | `envs/{env}.env.age` → `.env` |
+| `decrypt-env.sh` | `envs/{env}.env.age` → `.env` + `.secrets/` (auto-split; `--full` skips) |
 | `verify-env.sh` | Compare .env and age layers — report mismatches |
 | `init-env-handle.sh` | Clone repos + deploy env scripts (Linux equivalent) |
 
@@ -150,11 +150,16 @@ Linux:
 # Encrypt current .env for git storage
 .\encrypt-env.ps1 dev
 
-# Decrypt to edit secrets
-.\decrypt-env.ps1 dev
+# Decrypt to edit secrets (use -Full to get everything in one file)
+.\decrypt-env.ps1 dev -Full
 notepad ..\.env
 .\encrypt-env.ps1 dev
 Remove-Item ..\.env
+
+# Decrypt with auto-split (when envs/secrets.keys exists)
+.\decrypt-env.ps1 dev
+# → .env contains config only
+# → .secrets/ contains secret files
 ```
 
 ### DPAPI credential management (Windows only)
@@ -200,9 +205,14 @@ exposure via `docker inspect`, logs, and `/proc/*/environ`.
 
 3. Update your app code to read from `/run/secrets/` (with env var fallback).
 
-When `envs/secrets.keys` exists, deploy/env-run scripts automatically split
-`.env` into config (stays in `.env`) and secrets (written to `.secrets/KEY`).
-Both are cleaned up after use.
+When `envs/secrets.keys` exists, all scripts (deploy, env-run, decrypt-env)
+automatically split the decrypted content so that **secrets never appear in
+`.env`** — not even temporarily. Config stays in `.env`, secrets are written
+to `.secrets/KEY` files. `.env` is deleted after use; `.secrets/` **persists**
+while containers are running (Docker Compose bind-mounts these files).
+`.secrets/` is cleaned up automatically on `docker compose down` via env-run.
+`decrypt-env` leaves all files on disk for inspection (`-Full`/`--full` skips
+the split for debugging).
 
 ### Migration helper
 
@@ -232,7 +242,8 @@ variables should be secrets and drafts all required changes.
 | Secrets in git | `.env` is gitignored; only encrypted `.age` files committed |
 | Git repo compromised | `.age` files need passphrase to decrypt |
 | Server compromised (offline) | DPAPI files unreadable without Windows user profile |
-| `.env` on disk | Deleted after deploy; only exists briefly |
+| `.env` on disk | Deleted after deploy; never contains secrets when `secrets.keys` exists |
+| `.secrets/` on disk | Persists while containers run (bind-mount); cleaned up on `docker compose down` |
 | Secrets in docker inspect/logs | Optional `/run/secrets/` file mounts (via `envs/secrets.keys` manifest) |
 | Passphrase forgotten | Stored in PasswordDepot |
 | This repo compromised | Scripts contain no secrets; pin to audited tag, review before updating |

@@ -77,6 +77,10 @@ Summarize everything in a clear plan:
 1. **Manifest** (`envs/secrets.keys`): list of secret keys (already written)
 2. **docker-compose.yml changes**: the secrets section to add
 3. **App code changes**: files and lines that need updating, with before/after examples
-4. **Testing checklist**: steps to verify the migration works
+4. **`.gitignore` update**: ensure `.env.full` is listed (used as intermediate during split)
+5. **Testing checklist**: steps to verify the migration works
+   - Run `.\decrypt-env.ps1 dev` (or `./decrypt-env.sh dev`) — verify `.env` contains only config and `.secrets/` contains only secret files
+   - Run `.\decrypt-env.ps1 dev -Full` (or `--full`) — verify everything goes to a single `.env`
+   - Run `.\deploy.ps1` or `.\env-run.ps1 dev "docker compose config"` — verify secrets are mounted correctly
 
 Ask the user to review and confirm before making any code changes.

@@ -70,7 +70,7 @@ in dev vs prod.
     deploy.ps1                          # decrypt env + docker compose up
     env-run.ps1                         # load env + run any command + clean up
     encrypt-env.ps1                     # .env → envs/{env}.env.age
-    decrypt-env.ps1                     # envs/{env}.env.age → .env
+    decrypt-env.ps1                     # envs/{env}.env.age → .env (+ .secrets/ auto-split)
     store-env-to-credentials.ps1        # .env → DPAPI per-entry store
     generate-env-from-credentials.ps1   # DPAPI store → .env
     verify-env.ps1                      # compare all env layers for sync
@@ -88,12 +88,12 @@ in dev vs prod.
 | `deploy.ps1` | Load env (DPAPI → age → .env fallback), run `docker compose up`, clean up |
 | `env-run.ps1 {dev\|prod} "command"` | Load env, run any command, clean up (general-purpose) |
 | `encrypt-env.ps1 {dev\|prod}` | Encrypt `.env` → `envs/{env}.env.age` for git |
-| `decrypt-env.ps1 {dev\|prod}` | Decrypt `envs/{env}.env.age` → `.env` |
+| `decrypt-env.ps1 {dev\|prod} [-Full]` | Decrypt `envs/{env}.env.age` → `.env` + `.secrets/` (auto-split when `secrets.keys` exists; `-Full` skips split) |
 | `store-env-to-credentials.ps1 {dev\|prod}` | Store `.env` entries in DPAPI (Windows, machine-bound) |
 | `generate-env-from-credentials.ps1 {dev\|prod}` | Regenerate `.env` from DPAPI store |
 | `verify-env.ps1 {dev\|prod}` | Compare .env, DPAPI, and age layers — report mismatches |
 
-Linux equivalents: `deploy.sh`, `env-run.sh`, `encrypt-env.sh`, `decrypt-env.sh`.
+Linux equivalents: `deploy.sh`, `env-run.sh`, `encrypt-env.sh`, `decrypt-env.sh` (`--full` instead of `-Full`).
 
 ## Env Source Priority (used by deploy.ps1 and env-run.ps1)
 
@@ -137,19 +137,25 @@ are not visible via `docker inspect`, `docker logs`, or `/proc/*/environ`.
 
 ### How it works
 
-When `envs/secrets.keys` exists and is non-empty, deploy/env-run scripts
-automatically split the decrypted `.env` into:
+When `envs/secrets.keys` exists and is non-empty, all scripts (deploy, env-run,
+decrypt-env) automatically split the decrypted content so that **secrets never
+appear in `.env`** — not even temporarily:
 - **`.env`** — non-secret config only (used by `env_file:`)
 - **`.secrets/{KEY}`** — one file per secret (used by `secrets: file:`)
 
-Both are deleted after the command completes.
+**Cleanup:** `.env` and `.env.full` are deleted after deploy/env-run completes.
+`.secrets/` **persists** while containers are running (Docker Compose
+bind-mounts these files). It is deleted automatically when running
+`docker compose down` via env-run.
+`decrypt-env` leaves all files on disk for inspection (use `-Full`/`--full` to
+skip the split and write everything to a single file for debugging).
 
 ## When writing code that needs env vars
 
 - Reference env vars by name (e.g., `DATABASE_URL`, `API_KEY`) — they will be
   available at runtime via `.env` loaded by Docker Compose.
-- To see which keys exist: check `envs/dev.env.age` names by running
-  `.\decrypt-env.ps1 dev` or inspect a `.credentials.json` with:
+- To see which keys exist: run `.\decrypt-env.ps1 dev -Full` to get a
+  single `.env` with all entries, or inspect a `.credentials.json` with:
   ```powershell
   Get-Content envs/dev.credentials.json | ConvertFrom-Json | Get-Member -MemberType NoteProperty | Select-Object Name
   ```
@@ -207,6 +213,7 @@ These entries must be present in every project using this workflow:
 
 ```
 .env
+.env.full
 *.credentials.json
 secure-env-handle-and-deploy/
 .secrets/
@@ -227,5 +234,6 @@ secure-env-handle-and-deploy/
 | Secrets in git history | `.env` gitignored; only encrypted `.age` files committed |
 | Git repo compromised | `.age` files need passphrase to decrypt |
 | Server compromised (offline) | DPAPI files unreadable without Windows user profile |
-| `.env` on disk | Deleted after deploy; only exists briefly |
+| `.env` on disk | Deleted after deploy; never contains secrets when `secrets.keys` exists |
+| `.secrets/` on disk | Persists while containers run (bind-mount); cleaned up on `docker compose down` |
 | Machine destroyed | Recover from `.age` in git + passphrase from PasswordDepot |

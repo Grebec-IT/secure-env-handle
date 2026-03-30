@@ -23,8 +23,8 @@ All scripts live at the repo root and are installed into target projects under `
 | `env-run.sh` | Linux | Same as above (no DPAPI tier) |
 | `encrypt-env.ps1` | Windows | `.env` -> `envs/{env}.env.age` (age passphrase) |
 | `encrypt-env.sh` | Linux | Same |
-| `decrypt-env.ps1` | Windows | `envs/{env}.env.age` -> `.env` |
-| `decrypt-env.sh` | Linux | Same |
+| `decrypt-env.ps1` | Windows | `envs/{env}.env.age` -> `.env` + `.secrets/` (auto-split; `-Full` skips) |
+| `decrypt-env.sh` | Linux | Same (`--full` flag) |
 | `verify-env.ps1` | Windows | Compare .env, DPAPI, age layers + manifest awareness |
 | `verify-env.sh` | Linux | Compare .env, age layers + manifest awareness |
 | `store-env-to-credentials.ps1` | Windows | `.env` -> `envs/{env}.credentials.json` (DPAPI per-entry) |
@@ -44,15 +44,17 @@ Used by `deploy.*` and `env-run.*` when loading secrets:
 - If `.env` was **pre-existing**, scripts leave it untouched
 - If `.env` was **created** from DPAPI/age, scripts delete it after use
 - `deploy.*` offers an interactive delete prompt; `env-run.*` auto-cleans via finally/trap
-- If Docker secrets split was performed: `.env.full` (backup) and `.secrets/` directory are also deleted
+- `.env.full` (intermediate) is always deleted
+- `.secrets/` **persists** while containers run (bind-mount); deleted only on `docker compose down` via env-run
 
-#### Docker Secrets Split (v1.5.0)
-When `envs/secrets.keys` manifest exists and is non-empty:
-- `.env` is backed up to `.env.full`
-- Secret keys are written as individual files to `.secrets/{KEY}`
-- `.env` is rewritten with config-only entries
+#### Docker Secrets Split (v1.5.0+)
+All sources load into `.env.full` first — secrets never touch `.env`:
+- When `envs/secrets.keys` manifest exists and is non-empty:
+  - `.env.full` is split into `.env` (config only) and `.secrets/{KEY}` (secrets)
+  - `.env` never contains secret values, not even temporarily
 - Both `.env.full` and `.secrets/` are cleaned up after deploy/env-run
-- If manifest is absent or empty: no-op, identical to pre-v1.5.0 behaviour
+- If manifest is absent or empty: `.env.full` is moved to `.env` (all content)
+- `decrypt-env` also auto-splits when manifest exists (`-Full`/`--full` to skip)
 
 See: [knowledge-docker-secrets-split.md](knowledge-docker-secrets-split.md)
 
@@ -81,25 +83,25 @@ Start
 Prompt: select environment (dev/prod)
   |
   v
-Check .env exists? ----yes----> use it
+Check .env exists? ----yes----> copy to .env.full
   |no
   v
-Check credentials.json? --yes--> DPAPI decrypt each entry -> write .env
+Check credentials.json? --yes--> DPAPI decrypt each entry -> write .env.full
   |no
   v
-Check .env.age? ------yes-----> age --decrypt (prompt passphrase) -> write .env
+Check .env.age? ------yes-----> age --decrypt (prompt passphrase) -> write .env.full
   |no
   v
 ERROR: no env source found
   |
   v
-Split-EnvSecrets (reads envs/secrets.keys → .env.full backup → .secrets/)
-  |    ↑ no-op if manifest absent/empty
+Split-EnvSecrets (reads .env.full → .env config + .secrets/)
+  |    ↑ no manifest? → move .env.full to .env
   v
 docker compose up --build -d
   |
   v
-Offer: save .env to credential store? (reads .env.full if split was performed)
+Offer: save to credential store? (reads .env.full for complete key set)
   |
   v
 Offer: delete .env from disk?
@@ -126,17 +128,18 @@ Detect destructive command? --yes--> require confirmation word
 Track: did .env already exist? (envCreated flag)
   |
   v
-Load .env (same 3-tier priority)
+Load → .env.full (same 3-tier priority)
   |
   v
-Split-EnvSecrets (same as deploy)
+Split-EnvSecrets (split .env.full → .env config + .secrets/)
   |
   v
 Invoke-Expression $Command
   |
   v
 Finally: if envCreated -> delete .env
-         always: delete .env.full, .secrets/ (if split was performed)
+         always: delete .env.full
+         .secrets/: deleted only if command matches "down"
   |
   v
 Exit with command's exit code
@@ -234,7 +237,7 @@ flowchart TB
         DEPLOY --> SPLIT{"envs/secrets.keys?"}
         SPLIT -->|absent/empty| DOCKER_ENV["docker compose<br/>(all via env_file)"]
         SPLIT -->|present| DOCKER_SPLIT["docker compose<br/>(.env config + .secrets/ mounts)"]
-        DEPLOY --> CLEANUP["delete .env, .env.full, .secrets/"]
+        DEPLOY --> CLEANUP["delete .env, .env.full (.secrets/ kept)"]
     end
 ```
 
@@ -277,7 +280,7 @@ graph LR
 | Secrets in git history | `.env` gitignored; only encrypted `.age` files committed |
 | Git repo compromised | `.age` files need passphrase to decrypt |
 | Server compromised (offline) | DPAPI files unreadable without Windows user profile |
-| `.env` on disk | Deleted after deploy/env-run; only exists briefly |
+| `.env` on disk | Deleted after deploy/env-run; never contains secrets when manifest exists |
 | Secrets in docker inspect/logs | Optional `/run/secrets/` file mounts via manifest |
 | Machine destroyed | Recover from `.age` in git + passphrase from PasswordDepot |
 
@@ -294,7 +297,7 @@ graph LR
 
 - `env-run.ps1` uses `Invoke-Expression` / `env-run.sh` uses `eval` -- these execute arbitrary commands. This is intentional (the script's purpose), but the input comes from the local operator, not untrusted sources.
 - DPAPI `.credentials.json` stores encrypted values but key names are plaintext -- key names are visible if the file is leaked.
-- If deploy crashes mid-split, `.env` may contain only config keys. The `.env.full` backup mitigates this.
+- If deploy crashes mid-split, `.env.full` may remain on disk (contains all secrets). Cleanup on next run handles this.
 
 ---
 

@@ -14,6 +14,11 @@
 #   2. DPAPI credential store (envs/{env}.credentials.json)
 #   3. Encrypted .age file (asks for passphrase)
 #
+# When envs/secrets.keys exists, the loaded env is automatically split:
+#   - .env contains config-only entries (used by env_file:)
+#   - .secrets/KEY files contain secret values (used by secrets: file:)
+# Secrets never appear in .env — not even temporarily.
+#
 # Safety: commands containing "migrate" or data-destructive operations
 # require typing a confirmation word before execution.
 
@@ -34,8 +39,10 @@ Add-Type -AssemblyName System.Security
 
 $ProjectName = Split-Path $ProjectRoot -Leaf
 
-# -- Helper: split .env into config + secret files -------------------------
+# -- Helper: split full env into config + secret files -------------------------
 function Split-EnvSecrets {
+    param([string]$SourceFile = ".env.full")
+
     $manifest = Join-Path "envs" "secrets.keys"
     if (-not (Test-Path $manifest)) { return $false }
 
@@ -45,16 +52,13 @@ function Split-EnvSecrets {
 
     if ($secretKeys.Count -eq 0) { return $false }
 
-    # Backup full .env before splitting
-    Copy-Item ".env" ".env.full" -Force
-
-    # Parse .env
+    # Parse source file and split
     $configLines = @()
     $splitCount = 0
     $secretDir = ".secrets"
     if (-not (Test-Path $secretDir)) { New-Item -ItemType Directory -Path $secretDir -Force | Out-Null }
 
-    Get-Content ".env" | ForEach-Object {
+    Get-Content $SourceFile | ForEach-Object {
         $line = $_.Trim()
         if (-not $line -or $line.StartsWith("#")) {
             $configLines += $_
@@ -77,6 +81,7 @@ function Split-EnvSecrets {
         }
     }
 
+    # Write config-only .env — secrets never appear in this file
     $configLines | Set-Content -Path ".env" -Encoding UTF8
 
     Write-Host "  Secrets: $splitCount key(s) -> .secrets/" -ForegroundColor Cyan
@@ -115,7 +120,11 @@ if ($cmdLower -match 'down\s+.*(-v\b|--volumes)|volume\s+(rm|prune)|system\s+pru
     Write-Host ""
 }
 
-# -- Load .env (same priority as deploy.ps1) --------------------------------
+# Detect if this command stops containers (cleanup .secrets/ only then)
+$isDownCommand = $cmdLower -match '\bdown\b'
+
+# -- Load env into .env.full ------------------------------------------------
+# All sources load into .env.full first — secrets never touch .env directly.
 Write-Host "Loading environment..." -ForegroundColor Cyan
 
 $envCreated = $false
@@ -123,6 +132,7 @@ $fromSource = ""
 
 # Try 1: Existing .env file (highest priority — allows manual edits)
 if (Test-Path ".env") {
+    Copy-Item ".env" ".env.full" -Force
     $fromSource = "existing .env file"
 }
 
@@ -144,7 +154,7 @@ if ((-not $fromSource) -and (Test-Path $credFile)) {
         }
     }
     if ($lines.Count -gt 0) {
-        $lines | Set-Content -Path ".env" -Encoding UTF8
+        $lines | Set-Content -Path ".env.full" -Encoding UTF8
         $envCreated = $true
         $fromSource = "Credential Manager (DPAPI)"
     }
@@ -160,7 +170,7 @@ if (-not $fromSource) {
         }
         Write-Host "  No .env or credential store found. Decrypting $ageFile..."
         Write-Host "  Enter passphrase:"
-        age --decrypt --output .env $ageFile
+        age --decrypt --output .env.full $ageFile
         if ($LASTEXITCODE -ne 0) {
             Write-Error "Decryption failed."
             exit 1
@@ -177,8 +187,12 @@ if (-not $fromSource) {
 
 Write-Host "  Loaded from: $fromSource" -ForegroundColor Green
 
-# Split secrets if manifest exists
-$secretsSplit = Split-EnvSecrets
+# Split .env.full → .env (config) + .secrets/ (secrets)
+$secretsSplit = Split-EnvSecrets -SourceFile ".env.full"
+if (-not $secretsSplit) {
+    # No secrets manifest — full content becomes .env
+    Move-Item ".env.full" ".env" -Force
+}
 Write-Host ""
 
 # -- Execute command ---------------------------------------------------------
@@ -200,9 +214,10 @@ try {
         Write-Host ""
         Write-Host "  .env deleted." -ForegroundColor Green
     }
-    # Clean up secret files and backup
+    # Clean up intermediate file
     if (Test-Path ".env.full") { Remove-Item ".env.full" -Force }
-    if ($secretsSplit -and (Test-Path ".secrets")) {
+    # .secrets/ is only cleaned up when containers are being stopped
+    if ($secretsSplit -and $isDownCommand -and (Test-Path ".secrets")) {
         Remove-Item ".secrets" -Recurse -Force
         Write-Host "  .secrets/ deleted." -ForegroundColor Green
     }

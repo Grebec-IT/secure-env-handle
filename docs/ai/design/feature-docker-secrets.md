@@ -71,25 +71,28 @@ services:
 
 ### How deploy/env-run change
 
-The split happens **after** the `.env` is loaded (from any of the 3 tiers)
-and **before** `docker compose up` runs:
+All sources load into `.env.full` first — **secrets never appear in `.env`**,
+not even temporarily. The split happens before `docker compose up` runs:
 
 ```
-Load .env (existing 3-tier priority — unchanged)
+Load → .env.full (existing 3-tier priority — all sources write here)
         ↓
 Read envs/secrets.keys
         ↓
-    manifest empty/absent? ──yes──→ use .env as-is (current behaviour)
+    manifest empty/absent? ──yes──→ move .env.full → .env (all content)
         ↓ no
-Split .env:
-  - Copy .env → .env.full (backup for rollback)
+Split .env.full:
   - Secret keys → .secrets/{KEY} (one file each, UPPERCASE filenames)
-  - Remaining keys → rewrite .env (non-secret config only)
+  - Remaining keys → .env (non-secret config only)
         ↓
 Run docker compose (reads .env + mounts .secrets/)
         ↓
-Cleanup: delete .env, .env.full, AND .secrets/ (if created)
+Cleanup: delete .env, .env.full (.secrets/ persists for bind-mount;
+         cleaned up on 'docker compose down' via env-run)
 ```
+
+`decrypt-env` also auto-splits when the manifest exists. Use `-Full` (PS1) or
+`--full` (SH) to skip the split and write everything to a single file.
 
 ### Changes to verify-env
 
@@ -158,7 +161,7 @@ projects alongside the other scripts. Runs in the target project context.
 ## Data Flow
 
 ```
-envs/dev.env.age ──decrypt──→ .env (full)
+envs/dev.env.age ──decrypt──→ .env.full
                                 ↓
                     envs/secrets.keys
                                 ↓
@@ -178,8 +181,9 @@ envs/dev.env.age ──decrypt──→ .env (full)
 
 ## Security Considerations
 
-- Secret files in `.secrets/` and the backup `.env.full` exist briefly on disk,
-  same as `.env` today. All are deleted after deploy/env-run.
+- Secret files in `.secrets/` and the intermediate `.env.full` exist briefly on
+  disk. `.env` never contains secrets when the manifest is present. All transient
+  files are deleted after deploy/env-run.
 - `.secrets/` must be gitignored. The init script enforces this.
 - Key names in the manifest are not sensitive — safe to commit.
 - Docker secret file mounts use tmpfs inside the container — not written to

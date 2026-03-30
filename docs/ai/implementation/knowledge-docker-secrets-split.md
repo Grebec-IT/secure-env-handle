@@ -46,25 +46,27 @@ Identical logic in 4 scripts (duplicated, not shared):
 
 ### Split Logic (step by step)
 
+All sources (existing `.env`, DPAPI, age) load into `.env.full` first.
+The split function reads from `.env.full` and writes `.env` (config only)
+and `.secrets/` (secret files). **Secrets never appear in `.env`.**
+
 ```
 1. Read envs/secrets.keys
-   ↓ absent or empty? → return false (no-op)
+   ↓ absent or empty? → return false (no-op, caller moves .env.full → .env)
    ↓
-2. Backup: cp .env → .env.full
-   ↓
-3. Create .secrets/ directory
+2. Create .secrets/ directory
    (SH: chmod 700 for restrictive permissions)
    ↓
-4. Parse .env line by line:
+3. Parse .env.full line by line:
    - Comment/blank → keep in config lines
    - KEY=VALUE where KEY is in manifest → write VALUE to .secrets/KEY
    - KEY=VALUE where KEY is NOT in manifest → keep in config lines
    ↓
-5. Rewrite .env with config-only lines
+4. Write .env with config-only lines (secrets never touch this file)
    ↓
-6. Display: "Secrets: N key(s) -> .secrets/"
+5. Display: "Secrets: N key(s) -> .secrets/"
    ↓
-7. Return true (split was performed)
+6. Return true (split was performed)
 ```
 
 ### Secret File Format
@@ -79,21 +81,23 @@ Identical logic in 4 scripts (duplicated, not shared):
 #### deploy.ps1 / deploy.sh
 
 ```
-Load .env (3-tier priority) → Split-EnvSecrets → docker compose up → cleanup
-                                                                        ↓
-                                              delete .env, .env.full, .secrets/
+Load → .env.full (3-tier priority) → Split-EnvSecrets → docker compose up → cleanup
+                                           ↓                                    ↓
+                                   .env (config only)        delete .env, .env.full
+                                   .secrets/ (secrets)       .secrets/ kept (bind-mount)
 ```
 
-**DPAPI save fix:** When saving to credential store after split, deploy.ps1
-reads from `.env.full` (the backup) instead of the rewritten `.env`, so all
-keys (including secrets) are stored in DPAPI.
+**DPAPI save:** When saving to credential store after split, deploy.ps1
+reads from `.env.full` (the complete intermediate) so all keys (including
+secrets) are stored in DPAPI.
 
 #### env-run.ps1 / env-run.sh
 
 ```
-Load .env → Split-EnvSecrets → run command → finally: cleanup
-                                                ↓
-                                  delete .env (if created), .env.full, .secrets/
+Load → .env.full → Split-EnvSecrets → run command → finally: cleanup
+                          ↓                             ↓
+                  .env (config only)      delete .env (if created), .env.full
+                  .secrets/ (secrets)     .secrets/ deleted only on "down" commands
 ```
 
 Cleanup is in the `finally` block (PS1) or `trap EXIT` (SH), so it runs even
@@ -118,12 +122,13 @@ Does NOT perform a split. Instead:
 
 | File | Created by | Deleted when |
 |------|-----------|-------------|
-| `.env.full` | Split helper (backup before split) | Always: deploy cleanup / env-run finally |
-| `.secrets/` | Split helper | Only if split was performed (`$secretsSplit` / `$secrets_split` flag) |
-| `.env` | 3-tier load (unchanged) | Existing logic: auto-delete if created, prompt if pre-existing |
+| `.env.full` | All sources load here (intermediate, never exposed) | Always: deploy cleanup / env-run finally |
+| `.secrets/` | Split helper | **Persists** while containers run; deleted only on `docker compose down` via env-run |
+| `.env` | Split helper (config only) | Existing logic: auto-delete if created, prompt if pre-existing |
 
-The "only cleanup if we created it" pattern prevents deleting a `.secrets/`
-directory that existed before the script ran (though this is unlikely).
+Docker Compose `secrets: file:` creates bind mounts, so `.secrets/` must exist
+as long as containers are running. Deploy never deletes `.secrets/`; env-run
+only deletes it when the command matches `\bdown\b` (stopping containers).
 
 ---
 
@@ -140,9 +145,9 @@ directory that existed before the script ran (though this is unlikely).
 
 | File | Lifetime |
 |------|----------|
-| `.env.full` | Created before split, deleted after deploy/env-run |
+| `.env.full` | Intermediate from source load, deleted after deploy/env-run |
 | `.secrets/{KEY}` | Created during split, deleted after deploy/env-run |
-| `.env` (rewritten) | Overwritten during split to remove secret keys |
+| `.env` (config only) | Written by split with non-secret entries only; never contains secrets |
 
 ### docker-compose.yml (user-managed)
 
@@ -176,11 +181,10 @@ flowchart TB
     end
 
     subgraph "Deploy/Env-Run Runtime"
-        LOAD["Load .env (3-tier priority)"]
+        LOAD["Load → .env.full (3-tier priority)"]
         MANIFEST{"envs/secrets.keys<br/>exists and non-empty?"}
-        NOSPLIT["Use .env as-is<br/>(current behaviour)"]
-        BACKUP["Backup: .env → .env.full"]
-        SPLIT["Split .env"]
+        NOSPLIT["Move .env.full → .env<br/>(no split needed)"]
+        SPLIT["Split .env.full"]
         ENV_CONFIG[".env (config only)"]
         SECRETS[".secrets/KEY (per secret)"]
         COMPOSE["docker compose up"]
@@ -191,7 +195,7 @@ flowchart TB
     DPAPI --> LOAD
     LOAD --> MANIFEST
     MANIFEST -->|no| NOSPLIT --> COMPOSE
-    MANIFEST -->|yes| BACKUP --> SPLIT
+    MANIFEST -->|yes| SPLIT
     SPLIT --> ENV_CONFIG
     SPLIT --> SECRETS
     ENV_CONFIG -->|"env_file: [.env]"| COMPOSE
@@ -215,7 +219,7 @@ Container path:    /run/secrets/postgres_password (lowercase)
 
 ### Security Considerations
 
-- `.secrets/` files and `.env.full` exist briefly on disk, same exposure as `.env`
+- `.secrets/` files and `.env.full` exist briefly on disk; `.env` never contains secrets when manifest is present
 - SH version creates `.secrets/` with `chmod 700` (owner-only access)
 - PS1 version relies on Windows ACLs (no explicit chmod equivalent needed)
 - Docker mounts secrets as tmpfs inside the container -- not written to the container filesystem layer
@@ -226,8 +230,9 @@ Container path:    /run/secrets/postgres_password (lowercase)
 - **Function duplication across 4 scripts**: The split helper is copy-pasted into
   deploy.ps1, deploy.sh, env-run.ps1, env-run.sh rather than sourced from a
   shared file. This keeps each script self-contained (no import dependencies).
-- **Backup before split**: `.env.full` is created so the DPAPI save (in deploy.ps1)
-  can store the complete set of keys, and as a safety net if deploy crashes mid-split.
+- **Intermediate `.env.full`**: All sources load into `.env.full` first, ensuring
+  secrets never touch `.env`. Also used by DPAPI save (deploy.ps1) to store the
+  complete set of keys.
 - **No trailing newline in secret files**: Docker reads the file content as-is.
   A trailing newline would become part of the secret value, breaking password checks.
 - **Manifest is project-level, not per-environment**: A key is either sensitive or
@@ -243,7 +248,7 @@ Container path:    /run/secrets/postgres_password (lowercase)
 exists AND contains at least one non-empty, non-comment line. Otherwise:
 - `Split-EnvSecrets` / `split_env_secrets` returns false immediately
 - No `.secrets/` directory is created
-- No `.env.full` backup is created
+- `.env.full` is moved directly to `.env` (no split)
 - No cleanup of `.secrets/` is attempted
 - verify-env skips the type column and heuristic suggestions
 
