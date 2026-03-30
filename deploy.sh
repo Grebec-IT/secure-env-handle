@@ -121,7 +121,6 @@ if [ "$env_loaded" = false ] && [ -f "$age_file" ]; then
         exit 1
     fi
     echo "      No .env found. Decrypting $age_file..."
-    echo "      Enter passphrase:"
     age --decrypt --output .env.full "$age_file"
     env_loaded=true
     from_source="age-encrypted file"

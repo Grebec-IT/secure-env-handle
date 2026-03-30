@@ -163,7 +163,6 @@ if [ -z "$from_source" ]; then
             exit 1
         fi
         echo "  No .env found. Decrypting $age_file..."
-        echo "  Enter passphrase:"
         age --decrypt --output .env.full "$age_file"
         env_created=true
         from_source="age-encrypted file"

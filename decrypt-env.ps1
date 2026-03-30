@@ -67,9 +67,6 @@ if ($shouldSplit) {
     # Decrypt to temp file, then split — secrets never touch the output file
     $tempFile = [System.IO.Path]::GetTempFileName()
     Write-Host "Decrypting: $AgeFile (splitting via envs/secrets.keys)"
-    Write-Host "Enter passphrase:"
-    Write-Host ""
-
     age --decrypt --output $tempFile $AgeFile
 
     if ($LASTEXITCODE -ne 0) {
@@ -121,9 +118,6 @@ if ($shouldSplit) {
 } else {
     # No split — write everything to a single file
     Write-Host "Decrypting: $AgeFile -> $OutputFile"
-    Write-Host "Enter passphrase:"
-    Write-Host ""
-
     age --decrypt --output $OutputFile $AgeFile
 
     if ($LASTEXITCODE -ne 0) {

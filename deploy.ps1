@@ -144,7 +144,6 @@ if (-not $envLoaded) {
             exit 1
         }
         Write-Host "      No .env or credential store found. Decrypting $ageFile..."
-        Write-Host "      Enter passphrase:"
         age --decrypt --output .env.full $ageFile
         if ($LASTEXITCODE -ne 0) {
             Write-Error "Decryption failed."

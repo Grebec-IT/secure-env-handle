@@ -152,9 +152,6 @@ if [ "$should_split" = true ]; then
 else
     # No split — write everything to a single file
     echo "Decrypting: $AGE_FILE -> $OUTPUT_FILE"
-    echo "Enter passphrase:"
-    echo ""
-
     age --decrypt --output "$OUTPUT_FILE" "$AGE_FILE"
 
     echo ""
