@@ -17,7 +17,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
-Set-Location $ProjectRoot
+Push-Location $ProjectRoot
 Add-Type -AssemblyName System.Security
 
 if (-not (Test-Path $InputFile)) {
@@ -69,3 +69,5 @@ foreach ($key in ($entries.Keys | Sort-Object)) {
 }
 Write-Host ""
 Write-Host "Values are DPAPI-encrypted (only decryptable by $env:USERNAME on this machine)"
+
+Pop-Location

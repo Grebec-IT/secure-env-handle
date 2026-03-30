@@ -13,7 +13,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
-Set-Location $ProjectRoot
+Push-Location $ProjectRoot
 Add-Type -AssemblyName System.Security
 
 $credFile = Join-Path "envs" "$EnvName.credentials.json"
@@ -57,3 +57,5 @@ Write-Host "You can now:"
 Write-Host "  - Edit .env manually"
 Write-Host "  - Run: docker compose up -d"
 Write-Host "  - Store changes back: .\store-env-to-credentials.ps1 $EnvName"
+
+Pop-Location

@@ -33,7 +33,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
-Set-Location $ProjectRoot
+Push-Location $ProjectRoot
 [System.IO.Directory]::SetCurrentDirectory($ProjectRoot)
 Add-Type -AssemblyName System.Security
 
@@ -221,6 +221,7 @@ try {
         Remove-Item ".secrets" -Recurse -Force
         Write-Host "  .secrets/ deleted." -ForegroundColor Green
     }
+    Pop-Location
 }
 
 Write-Host ""

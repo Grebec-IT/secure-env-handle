@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Security
 
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
-Set-Location $ProjectRoot
+Push-Location $ProjectRoot
 
 $envFile     = ".env"
 $credFile    = "envs\$EnvName.credentials.json"
@@ -268,3 +268,5 @@ if ($suggestions.Count -gt 0) {
     }
 }
 Write-Host ""
+
+Pop-Location

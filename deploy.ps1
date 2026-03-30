@@ -16,7 +16,7 @@
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
-Set-Location $ProjectRoot
+Push-Location $ProjectRoot
 [System.IO.Directory]::SetCurrentDirectory($ProjectRoot)
 Add-Type -AssemblyName System.Security
 
@@ -254,3 +254,5 @@ Write-Host ""
 Write-Host "========================================"
 Write-Host "  Deploy complete: $EnvName" -ForegroundColor Green
 Write-Host "========================================"
+
+Pop-Location

@@ -17,7 +17,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
-Set-Location $ProjectRoot
+Push-Location $ProjectRoot
 
 if (-not (Test-Path $InputFile)) {
     Write-Error "$InputFile not found in $ProjectRoot"
@@ -50,3 +50,5 @@ Write-Host "Next steps:"
 Write-Host "  git add $Output"
 Write-Host "  git commit -m 'Update $EnvName encrypted env'"
 Write-Host "  git push"
+
+Pop-Location

@@ -25,7 +25,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
-Set-Location $ProjectRoot
+Push-Location $ProjectRoot
 [System.IO.Directory]::SetCurrentDirectory($ProjectRoot)
 
 $AgeFile = "envs\$EnvName.env.age"
@@ -133,3 +133,5 @@ if ($shouldSplit) {
     Write-Host "Remember to delete $OutputFile when done:"
     Write-Host "  Remove-Item $OutputFile"
 }
+
+Pop-Location
