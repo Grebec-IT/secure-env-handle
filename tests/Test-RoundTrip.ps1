@@ -211,6 +211,53 @@ Remove-Item ".env.merged" -Force
 Write-Host ""
 
 # ===========================================================================
+# TEST 2b: Deploy scenario — existing config-only .env + .secrets/
+# This is the EXACT flow that was broken: decrypt-env creates .env (config)
+# + .secrets/ (secrets). Then deploy.ps1 loads .env, must merge .secrets/
+# back in, split, and end up with the same state. If the merge is missing,
+# the split finds 0 secrets and wipes .secrets/.
+# ===========================================================================
+Write-Host "[Test 2b] Deploy scenario: config-only .env + .secrets/ -> merge -> split" -ForegroundColor Cyan
+
+# State after decrypt-env: .env has config only, .secrets/ has secrets
+# (This is already the state from Test 1)
+Assert-Equal "$((Parse-EnvFile '.env').Count)" "3" "Pre-condition: .env has 3 config entries"
+Assert-Equal "$(@(Get-ChildItem '.secrets' -File).Count)" "7" "Pre-condition: .secrets/ has 7 files"
+
+# Simulate deploy.ps1 "existing .env" loading: merge .env + .secrets/ into .env.full
+$deployMergedLines = @(Get-Content ".env")
+if (Test-Path ".secrets") {
+    foreach ($file in (Get-ChildItem ".secrets" -File -ErrorAction SilentlyContinue)) {
+        $deployMergedLines += "$($file.Name)=$([System.IO.File]::ReadAllText($file.FullName))"
+    }
+}
+$deployMergedLines | Set-Content ".env.full" -Encoding UTF8
+
+# Verify .env.full has ALL 10 entries
+$fullEntries = Parse-EnvFile ".env.full"
+Assert-Equal "$($fullEntries.Count)" "10" ".env.full has all 10 entries after merge"
+
+# Now split (same as deploy does)
+$deploySplitCount = Split-EnvFile -SourceFile ".env.full" -ManifestFile "envs\secrets.keys"
+Remove-Item ".env.full" -Force
+
+Assert-Equal "$deploySplitCount" "7" "Deploy split: 7 secrets (NOT 0!)"
+Assert-Equal "$((Parse-EnvFile '.env').Count)" "3" "After deploy split: .env has 3 config"
+Assert-Equal "$(@(Get-ChildItem '.secrets' -File).Count)" "7" "After deploy split: .secrets/ has 7 files"
+
+# Verify every value survived
+foreach ($k in $configKeyNames) {
+    $envEntries2 = Parse-EnvFile ".env"
+    Assert-Equal "$($envEntries2[$k])" "$($originalEntries[$k])" "Deploy scenario: $k (config)"
+}
+foreach ($k in $secretKeyNames) {
+    $val = [System.IO.File]::ReadAllText((Join-Path ".secrets" $k))
+    Assert-Equal $val $originalEntries[$k] "Deploy scenario: $k (secret)"
+}
+
+Write-Host ""
+
+# ===========================================================================
 # TEST 3: age encrypt → decrypt round-trip (if age + age-keygen available)
 # ===========================================================================
 if ($hasAge -and $hasAgeKeygen) {
