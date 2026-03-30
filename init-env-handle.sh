@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-VERSION="1.6.11"
+VERSION="1.6.12"
 DEFAULT_ORG="Grebec-IT"
 CONFIG_PATH="$HOME/.secure-env-handle.json"
 TARGET_DIR="$(pwd)"
@@ -83,7 +83,7 @@ install_env_handle() {
     echo -e "    env-scripts - ${GREEN}installed v$VERSION${NC}"
 
     # Remove directories that belong to the source repo only
-    for dir in docs .claude .github; do
+    for dir in docs .claude .github tests; do
         [ -d "$env_handle_dir/$dir" ] && rm -rf "$env_handle_dir/$dir"
     done
 
@@ -97,7 +97,7 @@ install_env_handle() {
 
     # -- Ensure .gitignore contains required entries ---------------------------
     local gitignore="$repo_path/.gitignore"
-    local required=(".env" "*.credentials.json" "secure-env-handle-and-deploy/" ".secrets/")
+    local required=(".env" ".env.full" "*.credentials.json" "secure-env-handle-and-deploy/" ".secrets/")
     local missing=()
 
     for entry in "${required[@]}"; do
@@ -173,12 +173,18 @@ if command -v jq > /dev/null 2>&1; then
 
                 if [ "$version_choice" = "1" ]; then
                     raw_url="https://raw.githubusercontent.com/$ORG/secure-env-handle/v$latest_tag/init-env-handle.sh"
+                    script_path="$(realpath "$0")"
                     echo ""
-                    echo -e "  ${CYAN}Download with:${NC}"
-                    echo "  curl -sfL \"$raw_url\" -o init-env-handle.sh && chmod +x init-env-handle.sh"
-                    echo ""
-                    echo -e "  ${YELLOW}Re-run after updating. Exiting.${NC}"
-                    exit 0
+                    echo -e "  ${CYAN}Downloading v$latest_tag...${NC}"
+                    if curl -sfL "$raw_url" -o "$script_path"; then
+                        chmod +x "$script_path"
+                        echo -e "  ${GREEN}Updated: $script_path${NC}"
+                        echo -e "  ${CYAN}Restarting...${NC}"
+                        echo ""
+                        exec "$script_path" "$@"
+                    else
+                        echo -e "  ${RED}Download failed. Continuing with v$VERSION...${NC}"
+                    fi
                 fi
                 echo ""
                 echo -e "  ${YELLOW}Continuing with v$VERSION...${NC}"

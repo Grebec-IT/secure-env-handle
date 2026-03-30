@@ -20,7 +20,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "1.6.11"
+$Version = "1.6.12"
 $defaultOrg = "Grebec-IT"
 $configPath = Join-Path $env:USERPROFILE ".secure-env-handle.json"
 $targetDir = Get-Location
@@ -67,7 +67,7 @@ function Install-EnvHandle {
     Write-Host "    env-scripts - installed v$Version" -ForegroundColor Green
 
     # Remove directories that belong to the source repo only
-    foreach ($removeDir in @("docs", ".claude", ".github")) {
+    foreach ($removeDir in @("docs", ".claude", ".github", "tests")) {
         $nested = Join-Path $envHandleDir $removeDir
         if (Test-Path $nested) { Remove-Item $nested -Recurse -Force }
     }
@@ -88,7 +88,7 @@ function Install-EnvHandle {
 
     # -- Ensure .gitignore contains required entries -----------------------
     $gitignorePath = Join-Path $RepoPath ".gitignore"
-    $requiredEntries = @(".env", "*.credentials.json", "secure-env-handle-and-deploy/", ".secrets/")
+    $requiredEntries = @(".env", ".env.full", "*.credentials.json", "secure-env-handle-and-deploy/", ".secrets/")
 
     # Read existing entries (if file exists)
     $existingEntries = @()
@@ -155,29 +155,21 @@ try {
 
             if ($versionChoice -eq "1") {
                 $rawUrl = "https://raw.githubusercontent.com/$org/secure-env-handle/v$latestTag/init-env-handle.ps1"
-                $releaseUrl = "https://github.com/$org/secure-env-handle/releases/tag/v$latestTag"
+                $scriptPath = $MyInvocation.MyCommand.Path
+                if (-not $scriptPath) { $scriptPath = Join-Path (Get-Location) "init-env-handle.ps1" }
                 Write-Host ""
-                Write-Host "  C) Copy download URL to clipboard"
-                Write-Host "  B) Open releases page in browser"
-                Write-Host ""
-                $updateChoice = Read-Host "Choice [C/B]"
-
-                if ($updateChoice -eq "B" -or $updateChoice -eq "b") {
-                    Start-Process $releaseUrl
+                Write-Host "  Downloading v$latestTag..." -ForegroundColor Cyan
+                try {
+                    Invoke-WebRequest -Uri $rawUrl -OutFile $scriptPath -UseBasicParsing -ErrorAction Stop
+                    Write-Host "  Updated: $scriptPath" -ForegroundColor Green
+                    Write-Host "  Restarting..." -ForegroundColor Cyan
                     Write-Host ""
-                    Write-Host "  Opened: $releaseUrl" -ForegroundColor Cyan
-                } else {
-                    Set-Clipboard -Value $rawUrl
-                    Write-Host ""
-                    Write-Host "  Copied to clipboard:" -ForegroundColor Cyan
-                    Write-Host "  $rawUrl"
-                    Write-Host ""
-                    Write-Host "  Download with:"
-                    Write-Host "  Invoke-WebRequest -Uri `"$rawUrl`" -OutFile init-env-handle.ps1"
+                    & $scriptPath
+                    exit $LASTEXITCODE
+                } catch {
+                    Write-Host "  Download failed: $_" -ForegroundColor Red
+                    Write-Host "  Continuing with v$Version..." -ForegroundColor Yellow
                 }
-                Write-Host ""
-                Write-Host "  Re-run after updating. Exiting." -ForegroundColor Yellow
-                exit 0
             }
             Write-Host ""
             Write-Host "  Continuing with v$Version..." -ForegroundColor Yellow
