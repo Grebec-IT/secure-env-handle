@@ -4,6 +4,10 @@
 #        .\store-env-to-credentials.ps1 prod
 #        .\store-env-to-credentials.ps1 dev custom.env
 #
+# When .secrets/ exists (from a split deploy), secret values are merged
+# into the credential store automatically. The store always contains
+# the complete set of config + secrets.
+#
 # Run from: <project>/secure-env-handle-and-deploy/
 
 param(
@@ -27,8 +31,9 @@ if (-not (Test-Path $InputFile)) {
 
 # Parse .env file (skip comments and empty lines)
 $entries = @{}
-Get-Content $InputFile | ForEach-Object {
-    $line = $_.Trim()
+$lines = Get-Content $InputFile
+foreach ($rawLine in $lines) {
+    $line = $rawLine.Trim()
     if ($line -and -not $line.StartsWith("#")) {
         $eqIdx = $line.IndexOf("=")
         if ($eqIdx -gt 0) {
@@ -36,6 +41,21 @@ Get-Content $InputFile | ForEach-Object {
             $value = $line.Substring($eqIdx + 1).Trim()
             $entries[$key] = $value
         }
+    }
+}
+
+# Merge secrets from .secrets/ directory (if present)
+if (Test-Path ".secrets") {
+    $secretFiles = Get-ChildItem ".secrets" -File -ErrorAction SilentlyContinue
+    $secretCount = 0
+    foreach ($file in $secretFiles) {
+        $key = $file.Name
+        $value = [System.IO.File]::ReadAllText($file.FullName)
+        $entries[$key] = $value
+        $secretCount++
+    }
+    if ($secretCount -gt 0) {
+        Write-Host "Merged: $secretCount secret(s) from .secrets/"
     }
 }
 

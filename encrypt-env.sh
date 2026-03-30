@@ -5,6 +5,10 @@
 #   ./encrypt-env.sh prod         # encrypts ../.env → ../envs/prod.env.age
 #   ./encrypt-env.sh dev my.env   # encrypts ../my.env → ../envs/dev.env.age
 #
+# When .secrets/ exists (from a split deploy), secret values are merged
+# back into the encrypted file automatically. The .age file always
+# contains the complete set of config + secrets.
+#
 # Run from: <project>/secure-env-handle-and-deploy/
 
 set -euo pipefail
@@ -32,11 +36,36 @@ fi
 mkdir -p envs
 OUTPUT="envs/${ENV_NAME}.env.age"
 
-echo "Encrypting: $INPUT_FILE -> $OUTPUT"
-echo "Enter a passphrase (save this in PasswordDepot):"
-echo ""
+# Merge .env (config) + .secrets/ (secrets) into a temp file for encryption
+encrypt_source="$INPUT_FILE"
+temp_merged=""
 
-age --passphrase --output "$OUTPUT" "$INPUT_FILE"
+if [ -d ".secrets" ]; then
+    secret_count=0
+    for f in .secrets/*; do
+        [ -f "$f" ] && secret_count=$((secret_count + 1))
+    done
+
+    if [ $secret_count -gt 0 ]; then
+        temp_merged="$(mktemp)"
+        cp "$INPUT_FILE" "$temp_merged"
+
+        for f in .secrets/*; do
+            [ -f "$f" ] || continue
+            key="$(basename "$f")"
+            value="$(cat "$f")"
+            echo "$key=$value" >> "$temp_merged"
+        done
+        encrypt_source="$temp_merged"
+        echo "Merged: $INPUT_FILE + $secret_count secret(s) from .secrets/"
+    fi
+fi
+
+echo "Encrypting: -> $OUTPUT"
+
+age --passphrase --output "$OUTPUT" "$encrypt_source"
+
+[ -n "$temp_merged" ] && rm -f "$temp_merged"
 
 echo ""
 echo "Encrypted: $OUTPUT"

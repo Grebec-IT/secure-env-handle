@@ -4,6 +4,10 @@
 #   .\encrypt-env.ps1 prod         # encrypts ..\.env → ..\envs\prod.env.age
 #   .\encrypt-env.ps1 dev my.env   # encrypts ..\my.env → ..\envs\dev.env.age
 #
+# When .secrets/ exists (from a split deploy), secret values are merged
+# back into the encrypted file automatically. The .age file always
+# contains the complete set of config + secrets.
+#
 # Run from: <project>/secure-env-handle-and-deploy/
 
 param(
@@ -32,16 +36,43 @@ if (-not (Get-Command age -ErrorAction SilentlyContinue)) {
 New-Item -ItemType Directory -Path "envs" -Force | Out-Null
 $Output = "envs\$EnvName.env.age"
 
-Write-Host "Encrypting: $InputFile -> $Output"
-Write-Host "Enter a passphrase (save this in PasswordDepot):"
-Write-Host ""
+# Merge .env (config) + .secrets/ (secrets) into a temp file for encryption
+$encryptSource = $InputFile
+$tempMerged = $null
 
-age --passphrase --output $Output $InputFile
+if (Test-Path ".secrets") {
+    $manifest = Join-Path "envs" "secrets.keys"
+    $secretFiles = Get-ChildItem ".secrets" -File -ErrorAction SilentlyContinue
+
+    if ($secretFiles -and $secretFiles.Count -gt 0) {
+        $tempMerged = [System.IO.Path]::GetTempFileName()
+        # Start with .env content
+        Copy-Item $InputFile $tempMerged -Force
+
+        # Append secret values
+        $secretCount = 0
+        foreach ($file in $secretFiles) {
+            $key = $file.Name
+            $value = [System.IO.File]::ReadAllText($file.FullName)
+            Add-Content -Path $tempMerged -Value "$key=$value" -Encoding UTF8
+            $secretCount++
+        }
+        $encryptSource = $tempMerged
+        Write-Host "Merged: $InputFile + $secretCount secret(s) from .secrets/"
+    }
+}
+
+Write-Host "Encrypting: -> $Output"
+
+age --passphrase --output $Output $encryptSource
 
 if ($LASTEXITCODE -ne 0) {
+    if ($tempMerged -and (Test-Path $tempMerged)) { Remove-Item $tempMerged -Force }
     Write-Error "Encryption failed."
     exit 1
 }
+
+if ($tempMerged -and (Test-Path $tempMerged)) { Remove-Item $tempMerged -Force }
 
 Write-Host ""
 Write-Host "Encrypted: $Output" -ForegroundColor Green
