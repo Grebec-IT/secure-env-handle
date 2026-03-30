@@ -108,6 +108,7 @@ if [ "$should_split" = true ]; then
 
     # Split into config (output file) and secrets (.secrets/)
     secret_dir=".secrets"
+    rm -rf "$secret_dir"
     mkdir -p "$secret_dir"
     chmod 700 "$secret_dir"
     split_count=0

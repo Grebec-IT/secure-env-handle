@@ -80,7 +80,8 @@ if ($shouldSplit) {
     $configLines = @()
     $splitCount = 0
     $secretDir = ".secrets"
-    if (-not (Test-Path $secretDir)) { New-Item -ItemType Directory -Path $secretDir -Force | Out-Null }
+    if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
 
     Get-Content $tempFile | ForEach-Object {
         $line = $_.Trim()

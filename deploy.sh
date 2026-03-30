@@ -39,6 +39,7 @@ split_env_secrets() {
     [ ${#secret_keys[@]} -eq 0 ] && return 1
 
     local secret_dir=".secrets"
+    rm -rf "$secret_dir"
     mkdir -p "$secret_dir"
     chmod 700 "$secret_dir"
     local split_count=0
