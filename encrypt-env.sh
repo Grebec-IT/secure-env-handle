@@ -48,7 +48,9 @@ if [ -d ".secrets" ]; then
 
     if [ $secret_count -gt 0 ]; then
         temp_merged="$(mktemp)"
+        # Copy .env and ensure trailing newline before appending secrets
         cp "$INPUT_FILE" "$temp_merged"
+        [ -n "$(tail -c 1 "$temp_merged")" ] && echo "" >> "$temp_merged"
 
         for f in .secrets/*; do
             [ -f "$f" ] || continue

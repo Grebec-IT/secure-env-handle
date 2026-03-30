@@ -46,17 +46,16 @@ if (Test-Path ".secrets") {
 
     if ($secretFiles -and $secretFiles.Count -gt 0) {
         $tempMerged = [System.IO.Path]::GetTempFileName()
-        # Start with .env content
-        Copy-Item $InputFile $tempMerged -Force
-
-        # Append secret values
+        # Build merged content: .env lines + secret lines
+        $mergedLines = @(Get-Content $InputFile)
         $secretCount = 0
         foreach ($file in $secretFiles) {
             $key = $file.Name
             $value = [System.IO.File]::ReadAllText($file.FullName)
-            Add-Content -Path $tempMerged -Value "$key=$value" -Encoding UTF8
+            $mergedLines += "$key=$value"
             $secretCount++
         }
+        $mergedLines | Set-Content $tempMerged -Encoding UTF8
         $encryptSource = $tempMerged
         Write-Host "Merged: $InputFile + $secretCount secret(s) from .secrets/"
     }
