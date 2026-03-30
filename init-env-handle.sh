@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-VERSION="1.6.1"
+VERSION="1.6.2"
 DEFAULT_ORG="Grebec-IT"
 CONFIG_PATH="$HOME/.secure-env-handle.json"
 TARGET_DIR="$(pwd)"

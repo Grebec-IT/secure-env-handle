@@ -26,6 +26,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $ProjectRoot
+[System.IO.Directory]::SetCurrentDirectory($ProjectRoot)
 
 $AgeFile = "envs\$EnvName.env.age"
 
