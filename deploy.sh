@@ -63,6 +63,7 @@ split_env_secrets() {
         done
 
         if $is_secret; then
+            [ -d "$secret_dir/$key" ] && rm -rf "$secret_dir/$key"
             printf '%s' "$value" > "$secret_dir/$key"
             split_count=$((split_count + 1))
         else
@@ -133,6 +134,9 @@ if [ "$env_loaded" = false ]; then
 fi
 
 echo "      Loaded from: $from_source"
+
+# Stop running containers to release bind-mount handles on .secrets/
+docker compose down 2>/dev/null || true
 
 # Split .env.full → .env (config) + .secrets/ (secrets)
 secrets_split=false

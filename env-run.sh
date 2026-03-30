@@ -71,6 +71,7 @@ split_env_secrets() {
         done
 
         if $is_secret; then
+            [ -d "$secret_dir/$key" ] && rm -rf "$secret_dir/$key"
             printf '%s' "$value" > "$secret_dir/$key"
             split_count=$((split_count + 1))
         else

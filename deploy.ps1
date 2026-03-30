@@ -59,6 +59,7 @@ function Split-EnvSecrets {
         if ($key -in $secretKeys) {
             # Write secret file (raw value, no trailing newline)
             $secretPath = Join-Path $secretDir $key
+            if (Test-Path $secretPath -PathType Container) { Remove-Item $secretPath -Recurse -Force }
             [System.IO.File]::WriteAllText($secretPath, $value)
             $splitCount++
         } else {
@@ -161,6 +162,9 @@ if (-not $envLoaded) {
 }
 
 Write-Host "      Loaded from: $fromSource" -ForegroundColor Green
+
+# Stop running containers to release bind-mount handles on .secrets/
+docker compose down 2>$null
 
 # Split .env.full → .env (config) + .secrets/ (secrets)
 $secretsSplit = Split-EnvSecrets -SourceFile ".env.full"

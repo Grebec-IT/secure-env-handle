@@ -75,6 +75,7 @@ function Split-EnvSecrets {
 
         if ($key -in $secretKeys) {
             $secretPath = Join-Path $secretDir $key
+            if (Test-Path $secretPath -PathType Container) { Remove-Item $secretPath -Recurse -Force }
             [System.IO.File]::WriteAllText($secretPath, $value)
             $splitCount++
         } else {
