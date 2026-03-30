@@ -186,7 +186,9 @@ if ($hasManifest -and (Test-Path ".secrets")) {
         $refresh = Read-Host "      Refresh secret files? (stops containers) [y/N]"
         if ($refresh -eq "" -or $refresh -in "N", "n") { $refreshSecrets = $false; break }
         if ($refresh -in "Y", "y") {
-            docker compose down 2>$null
+            $ErrorActionPreference = "Continue"
+            docker compose down
+            $ErrorActionPreference = "Stop"
             break
         }
         Write-Host "      Invalid input. Please enter Y or N." -ForegroundColor Yellow
