@@ -82,19 +82,19 @@ echo "========================================"
 echo ""
 
 # -- Step 1: Select environment -----------------------------------------
-echo "[1/3] Select environment:"
-echo "  1) dev"
-echo "  2) prod"
-read -rp "Choice [1/2]: " choice
+ENV_NAME=""
+while [ -z "$ENV_NAME" ]; do
+    echo "[1/3] Select environment:"
+    echo "  1) dev"
+    echo "  2) prod"
+    read -rp "Choice [1/2]: " choice
 
-case "$choice" in
-    1|dev)  ENV_NAME="dev" ;;
-    2|prod) ENV_NAME="prod" ;;
-    *)
-        echo "ERROR: Invalid choice." >&2
-        exit 1
-        ;;
-esac
+    case "$choice" in
+        1|dev)  ENV_NAME="dev" ;;
+        2|prod) ENV_NAME="prod" ;;
+        *) echo "Invalid input. Please enter 1 or 2." ;;
+    esac
+done
 
 echo "Selected: $ENV_NAME"
 echo ""
@@ -155,11 +155,14 @@ echo ""
 
 # -- Cleanup: delete .env -----------------------------------------------
 echo "Delete .env from disk?"
-read -rp "[Y/n]: " del
-if [ "$del" != "n" ] && [ "$del" != "N" ]; then
-    rm -f .env
-    echo "      .env deleted."
-fi
+while true; do
+    read -rp "[Y/n]: " del
+    case "$del" in
+        ""|[Yy]) rm -f .env; echo "      .env deleted."; break ;;
+        [Nn]) break ;;
+        *) echo "Invalid input. Please enter Y or N." ;;
+    esac
+done
 
 # Clean up intermediate file
 rm -f .env.full

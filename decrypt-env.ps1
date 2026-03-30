@@ -41,10 +41,14 @@ if (-not (Get-Command age -ErrorAction SilentlyContinue)) {
 
 if (Test-Path $OutputFile) {
     Write-Host "WARNING: $OutputFile already exists and will be overwritten." -ForegroundColor Yellow
-    $confirm = Read-Host "Continue? [Y/n]"
-    if ($confirm -eq "n" -or $confirm -eq "N") {
-        Write-Host "Aborted."
-        exit 0
+    while ($true) {
+        $confirm = Read-Host "Continue? [Y/n]"
+        if ($confirm -eq "" -or $confirm -in "Y", "y") { break }
+        if ($confirm -in "N", "n") {
+            Write-Host "Aborted."
+            exit 0
+        }
+        Write-Host "Invalid input. Please enter Y or N." -ForegroundColor Yellow
     }
 }
 

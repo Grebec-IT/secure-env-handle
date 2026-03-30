@@ -59,11 +59,14 @@ fi
 
 if [ -f "$OUTPUT_FILE" ]; then
     echo "WARNING: $OUTPUT_FILE already exists and will be overwritten."
-    read -rp "Continue? [Y/n]: " confirm
-    if [ "$confirm" = "n" ] || [ "$confirm" = "N" ]; then
-        echo "Aborted."
-        exit 0
-    fi
+    while true; do
+        read -rp "Continue? [Y/n]: " confirm
+        case "$confirm" in
+            ""|[Yy]) break ;;
+            [Nn]) echo "Aborted."; exit 0 ;;
+            *) echo "Invalid input. Please enter Y or N." ;;
+        esac
+    done
 fi
 
 # Check if we should split secrets

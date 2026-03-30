@@ -78,17 +78,19 @@ Write-Host "========================================"
 Write-Host ""
 
 # -- Step 1: Select environment -----------------------------------------
-Write-Host "[1/3] Select environment:" -ForegroundColor Cyan
-Write-Host "  1) dev"
-Write-Host "  2) prod"
-$choice = Read-Host "Choice [1/2]"
+$EnvName = ""
+while (-not $EnvName) {
+    Write-Host "[1/3] Select environment:" -ForegroundColor Cyan
+    Write-Host "  1) dev"
+    Write-Host "  2) prod"
+    $choice = Read-Host "Choice [1/2]"
 
-switch ($choice) {
-    { $_ -in "1", "dev" }  { $EnvName = "dev" }
-    { $_ -in "2", "prod" } { $EnvName = "prod" }
-    default {
-        Write-Error "Invalid choice."
-        exit 1
+    switch ($choice) {
+        { $_ -in "1", "dev" }  { $EnvName = "dev" }
+        { $_ -in "2", "prod" } { $EnvName = "prod" }
+        default {
+            Write-Host "Invalid input. Please enter 1 or 2." -ForegroundColor Yellow
+        }
     }
 }
 
@@ -185,8 +187,14 @@ Write-Host ""
 # -- Cleanup: save to credential store if not already there -------------
 if ($fromSource -ne "Credential Manager (DPAPI)") {
     Write-Host "Save to Windows Credential Manager for next deploy? (no passphrase needed next time)"
-    $save = Read-Host "[Y/n]"
-    if ($save -ne "n" -and $save -ne "N") {
+    $doSave = $null
+    while ($null -eq $doSave) {
+        $save = Read-Host "[Y/n]"
+        if ($save -eq "" -or $save -in "Y", "y") { $doSave = $true }
+        elseif ($save -in "N", "n") { $doSave = $false }
+        else { Write-Host "Invalid input. Please enter Y or N." -ForegroundColor Yellow }
+    }
+    if ($doSave) {
         # Read full env (from .env.full which has all entries including secrets)
         $envSource = if (Test-Path ".env.full") { ".env.full" } else { ".env" }
         $entries = @{}
@@ -220,10 +228,15 @@ if (Test-Path ".env") {
     } else {
         Write-Host ""
         Write-Host "Delete .env from disk?"
-        $del = Read-Host "[Y/n]"
-        if ($del -ne "n" -and $del -ne "N") {
-            Remove-Item .env -Force
-            Write-Host "      .env deleted." -ForegroundColor Green
+        while ($true) {
+            $del = Read-Host "[Y/n]"
+            if ($del -eq "" -or $del -in "Y", "y") {
+                Remove-Item .env -Force
+                Write-Host "      .env deleted." -ForegroundColor Green
+                break
+            }
+            if ($del -in "N", "n") { break }
+            Write-Host "Invalid input. Please enter Y or N." -ForegroundColor Yellow
         }
     }
 }
