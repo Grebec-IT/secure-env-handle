@@ -1,0 +1,14 @@
+services:
+  secret-reader:
+    image: alpine:3.19
+    command: ["sleep", "3600"]
+    env_file: [.env]
+    secrets:
+      - test_password
+      - test_token
+
+secrets:
+  test_password:
+    file: .secrets/TEST_PASSWORD
+  test_token:
+    file: .secrets/TEST_TOKEN
