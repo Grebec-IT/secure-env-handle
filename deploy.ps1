@@ -24,7 +24,10 @@ $ProjectName = Split-Path $ProjectRoot -Leaf
 
 # -- Helper: split full env into config + secret files -------------------------
 function Split-EnvSecrets {
-    param([string]$SourceFile = ".env.full")
+    param(
+        [string]$SourceFile = ".env.full",
+        [bool]$WriteSecrets = $true
+    )
 
     $manifest = Join-Path "envs" "secrets.keys"
     if (-not (Test-Path $manifest)) { return $false }
@@ -38,9 +41,12 @@ function Split-EnvSecrets {
     # Parse source file and split
     $configLines = @()
     $splitCount = 0
-    $secretDir = ".secrets"
-    if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
+
+    if ($WriteSecrets) {
+        $secretDir = ".secrets"
+        if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
+    }
 
     Get-Content $SourceFile | ForEach-Object {
         $line = $_.Trim()
@@ -57,10 +63,11 @@ function Split-EnvSecrets {
         $value = $line.Substring($eqIdx + 1).Trim()
 
         if ($key -in $secretKeys) {
-            # Write secret file (raw value, no trailing newline)
-            $secretPath = Join-Path $secretDir $key
-            if (Test-Path $secretPath -PathType Container) { Remove-Item $secretPath -Recurse -Force }
-            [System.IO.File]::WriteAllText($secretPath, $value)
+            if ($WriteSecrets) {
+                $secretPath = Join-Path $secretDir $key
+                if (Test-Path $secretPath -PathType Container) { Remove-Item $secretPath -Recurse -Force }
+                [System.IO.File]::WriteAllText($secretPath, $value)
+            }
             $splitCount++
         } else {
             $configLines += $_
@@ -70,7 +77,11 @@ function Split-EnvSecrets {
     # Write config-only .env — secrets never appear in this file
     $configLines | Set-Content -Path ".env" -Encoding UTF8
 
-    Write-Host "      Secrets: $splitCount key(s) -> .secrets/" -ForegroundColor Cyan
+    if ($WriteSecrets) {
+        Write-Host "      Secrets: $splitCount key(s) -> .secrets/" -ForegroundColor Cyan
+    } else {
+        Write-Host "      Secrets: using existing .secrets/ ($splitCount key(s))" -ForegroundColor Cyan
+    }
     return $true
 }
 
@@ -163,11 +174,27 @@ if (-not $envLoaded) {
 
 Write-Host "      Loaded from: $fromSource" -ForegroundColor Green
 
-# Stop running containers to release bind-mount handles on .secrets/
-docker compose down 2>$null
+# Check if secrets need refreshing
+$refreshSecrets = $true
+$manifest = Join-Path "envs" "secrets.keys"
+$hasManifest = (Test-Path $manifest) -and (
+    (Get-Content $manifest | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith("#") }).Count -gt 0
+)
+if ($hasManifest -and (Test-Path ".secrets")) {
+    Write-Host ""
+    while ($true) {
+        $refresh = Read-Host "      Refresh secret files? (stops containers) [y/N]"
+        if ($refresh -eq "" -or $refresh -in "N", "n") { $refreshSecrets = $false; break }
+        if ($refresh -in "Y", "y") {
+            docker compose down 2>$null
+            break
+        }
+        Write-Host "      Invalid input. Please enter Y or N." -ForegroundColor Yellow
+    }
+}
 
 # Split .env.full → .env (config) + .secrets/ (secrets)
-$secretsSplit = Split-EnvSecrets -SourceFile ".env.full"
+$secretsSplit = Split-EnvSecrets -SourceFile ".env.full" -WriteSecrets $refreshSecrets
 if (-not $secretsSplit) {
     # No secrets manifest — full content becomes .env
     Move-Item ".env.full" ".env" -Force

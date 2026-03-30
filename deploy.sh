@@ -25,6 +25,7 @@ PROJECT_NAME="$(basename "$PROJECT_ROOT")"
 # -- Helper: split full env into config + secret files -------------------------
 split_env_secrets() {
     local source_file="${1:-.env.full}"
+    local write_secrets="${2:-true}"
     local manifest="envs/secrets.keys"
     [ -f "$manifest" ] || return 1
 
@@ -38,11 +39,14 @@ split_env_secrets() {
 
     [ ${#secret_keys[@]} -eq 0 ] && return 1
 
-    local secret_dir=".secrets"
-    rm -rf "$secret_dir"
-    mkdir -p "$secret_dir"
-    chmod 700 "$secret_dir"
     local split_count=0
+
+    if [ "$write_secrets" = true ]; then
+        local secret_dir=".secrets"
+        rm -rf "$secret_dir"
+        mkdir -p "$secret_dir"
+        chmod 700 "$secret_dir"
+    fi
 
     local config_lines=""
     while IFS= read -r line; do
@@ -63,8 +67,10 @@ split_env_secrets() {
         done
 
         if $is_secret; then
-            [ -d "$secret_dir/$key" ] && rm -rf "$secret_dir/$key"
-            printf '%s' "$value" > "$secret_dir/$key"
+            if [ "$write_secrets" = true ]; then
+                [ -d "$secret_dir/$key" ] && rm -rf "$secret_dir/$key"
+                printf '%s' "$value" > "$secret_dir/$key"
+            fi
             split_count=$((split_count + 1))
         else
             config_lines+="$line"$'\n'
@@ -74,7 +80,11 @@ split_env_secrets() {
     # Write config-only .env — secrets never appear in this file
     printf '%s' "$config_lines" > .env
 
-    echo "      Secrets: $split_count key(s) -> .secrets/"
+    if [ "$write_secrets" = true ]; then
+        echo "      Secrets: $split_count key(s) -> .secrets/"
+    else
+        echo "      Secrets: using existing .secrets/ ($split_count key(s))"
+    fi
     return 0
 }
 
@@ -135,12 +145,36 @@ fi
 
 echo "      Loaded from: $from_source"
 
-# Stop running containers to release bind-mount handles on .secrets/
-docker compose down 2>/dev/null || true
+# Check if secrets need refreshing
+refresh_secrets=true
+manifest="envs/secrets.keys"
+has_manifest=false
+if [ -f "$manifest" ]; then
+    count=0
+    while IFS= read -r line; do
+        line="$(echo "$line" | xargs)"
+        [ -z "$line" ] && continue
+        [[ "$line" == \#* ]] && continue
+        count=$((count + 1))
+    done < "$manifest"
+    [ $count -gt 0 ] && has_manifest=true
+fi
+
+if [ "$has_manifest" = true ] && [ -d ".secrets" ]; then
+    echo ""
+    while true; do
+        read -rp "      Refresh secret files? (stops containers) [y/N]: " refresh
+        case "$refresh" in
+            ""|[Nn]) refresh_secrets=false; break ;;
+            [Yy]) docker compose down 2>/dev/null || true; break ;;
+            *) echo "      Invalid input. Please enter Y or N." ;;
+        esac
+    done
+fi
 
 # Split .env.full → .env (config) + .secrets/ (secrets)
 secrets_split=false
-if split_env_secrets ".env.full"; then
+if split_env_secrets ".env.full" "$refresh_secrets"; then
     secrets_split=true
 else
     # No secrets manifest — full content becomes .env
