@@ -76,7 +76,7 @@ should_split=false
 if [ "$FULL_MODE" = false ] && [ -f "$MANIFEST" ]; then
     secret_count=0
     while IFS= read -r line; do
-        line="$(echo "$line" | xargs)"
+        line="$(echo "$line" | sed 's/^\xef\xbb\xbf//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
         [ -z "$line" ] && continue
         [[ "$line" == \#* ]] && continue
         secret_count=$((secret_count + 1))
@@ -87,12 +87,13 @@ fi
 if [ "$should_split" = true ]; then
     # Decrypt to temp file, then split — secrets never touch the output file
     temp_file="$(mktemp)"
+    chmod 600 "$temp_file"
+    trap 'rm -f "$temp_file"' EXIT
     echo "Decrypting: $AGE_FILE (splitting via envs/secrets.keys)"
     echo "Enter passphrase:"
     echo ""
 
     if ! age --decrypt --output "$temp_file" "$AGE_FILE"; then
-        rm -f "$temp_file"
         echo "ERROR: Decryption failed." >&2
         exit 1
     fi
@@ -100,11 +101,19 @@ if [ "$should_split" = true ]; then
     # Read secret keys from manifest
     declare -a secret_keys=()
     while IFS= read -r line; do
-        line="$(echo "$line" | xargs)"
+        line="$(echo "$line" | sed 's/^\xef\xbb\xbf//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
         [ -z "$line" ] && continue
         [[ "$line" == \#* ]] && continue
         secret_keys+=("$line")
     done < "$MANIFEST"
+
+    # Validate key names (prevent path traversal)
+    for sk in "${secret_keys[@]}"; do
+        if ! echo "$sk" | grep -qE '^[A-Za-z0-9_]+$'; then
+            echo "ERROR: Invalid key name in secrets.keys: '$sk' (only A-Z, a-z, 0-9, _ allowed)" >&2
+            exit 1
+        fi
+    done
 
     # Split into config (output file) and secrets (.secrets/)
     secret_dir=".secrets"
@@ -121,7 +130,7 @@ if [ "$should_split" = true ]; then
             continue
         fi
         key="${trimmed%%=*}"
-        value="${trimmed#*=}"
+        value="${line#*=}"
 
         is_secret=false
         for sk in "${secret_keys[@]}"; do
@@ -141,7 +150,6 @@ if [ "$should_split" = true ]; then
     done < "$temp_file"
 
     printf '%s' "$config_lines" > "$OUTPUT_FILE"
-    rm -f "$temp_file"
 
     echo ""
     echo "Decrypted (split mode):"

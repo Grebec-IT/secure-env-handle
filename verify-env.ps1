@@ -35,7 +35,7 @@ function Parse-EnvContent {
             $eqIdx = $trimmed.IndexOf("=")
             if ($eqIdx -gt 0) {
                 $key = $trimmed.Substring(0, $eqIdx).Trim()
-                $value = $trimmed.Substring($eqIdx + 1).Trim()
+                $value = $trimmed.Substring($eqIdx + 1)
                 $entries[$key] = $value
             }
         }
@@ -53,10 +53,18 @@ Write-Host ""
 $layers = @{}
 $layerNames = @()
 
-# Layer 1: .env file
+# Layer 1: .env file (+ .secrets/ if present, for complete view)
 if (Test-Path $envFile) {
-    Write-Host "  [found]   .env" -ForegroundColor Green
-    $layers["env"] = Parse-EnvContent (Get-Content $envFile)
+    $envLines = @(Get-Content $envFile)
+    if (Test-Path ".secrets") {
+        foreach ($file in (Get-ChildItem ".secrets" -File -ErrorAction SilentlyContinue)) {
+            $envLines += "$($file.Name)=$([System.IO.File]::ReadAllText($file.FullName))"
+        }
+        Write-Host "  [found]   .env + .secrets/" -ForegroundColor Green
+    } else {
+        Write-Host "  [found]   .env" -ForegroundColor Green
+    }
+    $layers["env"] = Parse-EnvContent $envLines
     $layerNames += "env"
 } else {
     Write-Host "  [absent]  .env" -ForegroundColor DarkGray
@@ -123,9 +131,9 @@ $manifestPath = Join-Path "envs" "secrets.keys"
 $secretKeys = @()
 $hasManifest = $false
 if (Test-Path $manifestPath) {
-    $secretKeys = Get-Content $manifestPath |
+    $secretKeys = @(Get-Content $manifestPath |
         ForEach-Object { $_.Trim() } |
-        Where-Object { $_ -and -not $_.StartsWith("#") }
+        Where-Object { $_ -and -not $_.StartsWith("#") })
     if ($secretKeys.Count -gt 0) {
         $hasManifest = $true
         Write-Host "  Manifest:  envs/secrets.keys ($($secretKeys.Count) secret keys)" -ForegroundColor Cyan
@@ -215,9 +223,7 @@ foreach ($key in $sortedKeys) {
         $outOfSync++
         Write-Host ("  {0,-28} $typeStr" -f $displayKey) -NoNewline
         foreach ($name in $layerNames) {
-            $val = $layers[$name][$key]
-            $preview = if ($val.Length -gt 4) { $val.Substring(0, 4) + "..." } else { $val }
-            Write-Host ("{0,-10}" -f $preview) -NoNewline -ForegroundColor Red
+            Write-Host ("{0,-10}" -f "[differs]") -NoNewline -ForegroundColor Red
         }
         Write-Host "  MISMATCH" -ForegroundColor Red
     }

@@ -62,54 +62,71 @@ if ($shouldSplit) {
         ForEach-Object { $_.Trim() } |
         Where-Object { $_ -and -not $_.StartsWith("#") })
     if ($secretKeys.Count -eq 0) { $shouldSplit = $false }
+
+    # Validate key names (prevent path traversal)
+    foreach ($sk in $secretKeys) {
+        if ($sk -notmatch '^[A-Za-z0-9_]+$') {
+            Write-Error "Invalid key name in secrets.keys: '$sk' (only A-Z, a-z, 0-9, _ allowed)"
+            exit 1
+        }
+    }
 }
 
 if ($shouldSplit) {
     # Decrypt to temp file, then split — secrets never touch the output file
     $tempFile = [System.IO.Path]::GetTempFileName()
-    Write-Host "Decrypting: $AgeFile (splitting via envs/secrets.keys)"
-    age --decrypt --output $tempFile $AgeFile
+    try {
+        Write-Host "Decrypting: $AgeFile (splitting via envs/secrets.keys)"
+        age --decrypt --output $tempFile $AgeFile
 
-    if ($LASTEXITCODE -ne 0) {
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Decryption failed."
+            exit 1
+        }
+
+        # Split into config (output file) and secrets (.secrets/)
+        $configLines = @()
+        $splitCount = 0
+        $secretDir = ".secrets"
+        if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
+        # Restrict permissions to current user only
+        $acl = Get-Acl $secretDir
+        $acl.SetAccessRuleProtection($true, $false)
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.SetAccessRule($rule)
+        Set-Acl $secretDir $acl
+
+        $tempLines = Get-Content $tempFile
+        foreach ($rawLine in $tempLines) {
+            $line = $rawLine.Trim()
+            if (-not $line -or $line.StartsWith("#")) {
+                $configLines += $rawLine
+                continue
+            }
+            $eqIdx = $line.IndexOf("=")
+            if ($eqIdx -le 0) {
+                $configLines += $rawLine
+                continue
+            }
+            $key = $line.Substring(0, $eqIdx).Trim()
+            $value = $line.Substring($eqIdx + 1)
+
+            if ($key -in $secretKeys) {
+                $secretPath = Join-Path $secretDir $key
+                if (Test-Path $secretPath -PathType Container) { Remove-Item $secretPath -Recurse -Force }
+                [System.IO.File]::WriteAllText($secretPath, $value)
+                $splitCount++
+            } else {
+                $configLines += $rawLine
+            }
+        }
+
+        $configLines | Set-Content -Path $OutputFile -Encoding UTF8
+    } finally {
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-        Write-Error "Decryption failed."
-        exit 1
     }
-
-    # Split into config (output file) and secrets (.secrets/)
-    $configLines = @()
-    $splitCount = 0
-    $secretDir = ".secrets"
-    if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
-
-    $tempLines = Get-Content $tempFile
-    foreach ($rawLine in $tempLines) {
-        $line = $rawLine.Trim()
-        if (-not $line -or $line.StartsWith("#")) {
-            $configLines += $rawLine
-            continue
-        }
-        $eqIdx = $line.IndexOf("=")
-        if ($eqIdx -le 0) {
-            $configLines += $rawLine
-            continue
-        }
-        $key = $line.Substring(0, $eqIdx).Trim()
-        $value = $line.Substring($eqIdx + 1).Trim()
-
-        if ($key -in $secretKeys) {
-            $secretPath = Join-Path $secretDir $key
-            if (Test-Path $secretPath -PathType Container) { Remove-Item $secretPath -Recurse -Force }
-            [System.IO.File]::WriteAllText($secretPath, $value)
-            $splitCount++
-        } else {
-            $configLines += $rawLine
-        }
-    }
-
-    $configLines | Set-Content -Path $OutputFile -Encoding UTF8
-    Remove-Item $tempFile -Force
 
     Write-Host ""
     Write-Host "Decrypted (split mode):" -ForegroundColor Green

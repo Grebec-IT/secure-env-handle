@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-VERSION="1.6.13"
+VERSION="1.6.14"
 DEFAULT_ORG="Grebec-IT"
 CONFIG_PATH="$HOME/.secure-env-handle.json"
 TARGET_DIR="$(pwd)"
@@ -166,7 +166,7 @@ if command -v jq > /dev/null 2>&1; then
             else
                 echo -e "  ${YELLOW}WARNING: You are running v$VERSION, latest is v$latest_tag${NC}"
                 echo ""
-                echo "  1) Show download command"
+                echo "  1) Update script"
                 echo "  2) Continue with current version (v$VERSION)"
                 echo ""
                 read -rp "Choice [1/2]: " version_choice
@@ -262,7 +262,10 @@ if [ "$mode" = "1" ]; then
     }
 
     # Filter to org, exclude secure-env-handle, sort
-    mapfile -t org_repos < <(echo "$repos_json" | jq -r \
+    org_repos=()
+    while IFS= read -r repo_name; do
+        [ -n "$repo_name" ] && org_repos+=("$repo_name")
+    done < <(echo "$repos_json" | jq -r \
         --arg org "$ORG" \
         '.[] | select(.owner.login == $org and .name != "secure-env-handle") | .name' | sort)
 
@@ -337,8 +340,11 @@ if [ "$mode" = "2" ]; then
     echo ""
 
     # List subdirectories (exclude hidden and secure-env-handle)
-    mapfile -t subdirs < <(find "$TARGET_DIR" -mindepth 1 -maxdepth 1 -type d \
-        ! -name '.*' ! -name 'secure-env-handle' -printf '%f\n' | sort)
+    subdirs=()
+    while IFS= read -r d; do
+        subdirs+=("$(basename "$d")")
+    done < <(find "$TARGET_DIR" -mindepth 1 -maxdepth 1 -type d \
+        ! -name '.*' ! -name 'secure-env-handle' | sort)
 
     if [ ${#subdirs[@]} -eq 0 ]; then
         echo "No project subdirectories found in $TARGET_DIR." >&2

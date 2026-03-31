@@ -63,15 +63,17 @@ if (Test-Path ".secrets") {
 
 Write-Host "Encrypting: -> $Output"
 
-age --passphrase --output $Output $encryptSource
+try {
+    age --passphrase --output $Output $encryptSource
 
-if ($LASTEXITCODE -ne 0) {
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Encryption failed."
+        exit 1
+    }
+} finally {
+    # Always clean up temp merged file (contains all secrets in plaintext)
     if ($tempMerged -and (Test-Path $tempMerged)) { Remove-Item $tempMerged -Force }
-    Write-Error "Encryption failed."
-    exit 1
 }
-
-if ($tempMerged -and (Test-Path $tempMerged)) { Remove-Item $tempMerged -Force }
 
 Write-Host ""
 Write-Host "Encrypted: $Output" -ForegroundColor Green

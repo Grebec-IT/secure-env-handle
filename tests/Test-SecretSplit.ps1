@@ -82,7 +82,7 @@ function Split-EnvSecrets {
             continue
         }
         $key = $line.Substring(0, $eqIdx).Trim()
-        $value = $line.Substring($eqIdx + 1).Trim()
+        $value = $line.Substring($eqIdx + 1)
 
         if ($key -in $secretKeys) {
             if ($WriteSecrets) {

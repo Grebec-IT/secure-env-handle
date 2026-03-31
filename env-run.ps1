@@ -17,7 +17,8 @@
 # When envs/secrets.keys exists, the loaded env is automatically split:
 #   - .env contains config-only entries (used by env_file:)
 #   - .secrets/KEY files contain secret values (used by secrets: file:)
-# Secrets never appear in .env — not even temporarily.
+# When envs/secrets.keys exists, secrets never appear in .env — not even temporarily.
+# Without a manifest, all values (including secrets) go into .env.
 #
 # Safety: commands containing "migrate" or data-destructive operations
 # require typing a confirmation word before execution.
@@ -52,12 +53,27 @@ function Split-EnvSecrets {
 
     if ($secretKeys.Count -eq 0) { return $false }
 
+    # Validate key names (prevent path traversal)
+    foreach ($sk in $secretKeys) {
+        if ($sk -notmatch '^[A-Za-z0-9_]+$') {
+            Write-Error "Invalid key name in secrets.keys: '$sk' (only A-Z, a-z, 0-9, _ allowed)"
+            exit 1
+        }
+    }
+
     # Parse source file and split
     $configLines = @()
     $splitCount = 0
     $secretDir = ".secrets"
     if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
     New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
+    # Restrict permissions to current user only
+    $acl = Get-Acl $secretDir
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        [System.Security.Principal.WindowsIdentity]::GetCurrent().Name, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+    $acl.SetAccessRule($rule)
+    Set-Acl $secretDir $acl
 
     $lines = Get-Content $SourceFile
     foreach ($rawLine in $lines) {
@@ -72,7 +88,7 @@ function Split-EnvSecrets {
             continue
         }
         $key = $line.Substring(0, $eqIdx).Trim()
-        $value = $line.Substring($eqIdx + 1).Trim()
+        $value = $line.Substring($eqIdx + 1)
 
         if ($key -in $secretKeys) {
             $secretPath = Join-Path $secretDir $key
@@ -217,8 +233,8 @@ try {
     Write-Host "  Command failed: $_" -ForegroundColor Red
     $commandExit = 1
 } finally {
-    # Clean up .env only if we created it (from DPAPI or age)
-    if ($envCreated -and (Test-Path ".env")) {
+    # Always clean up .env after command (CLAUDE.md Rule 5: .env only exists briefly)
+    if (Test-Path ".env") {
         Remove-Item .env -Force
         Write-Host ""
         Write-Host "  .env deleted." -ForegroundColor Green

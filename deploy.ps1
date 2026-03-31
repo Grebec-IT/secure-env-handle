@@ -12,7 +12,8 @@
 # When envs/secrets.keys exists, the loaded env is automatically split:
 #   - .env contains config-only entries (used by env_file:)
 #   - .secrets/KEY files contain secret values (used by secrets: file:)
-# Secrets never appear in .env — not even temporarily.
+# When envs/secrets.keys exists, secrets never appear in .env — not even temporarily.
+# Without a manifest, all values (including secrets) go into .env.
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
@@ -38,6 +39,14 @@ function Split-EnvSecrets {
 
     if ($secretKeys.Count -eq 0) { return $false }
 
+    # Validate key names (prevent path traversal)
+    foreach ($sk in $secretKeys) {
+        if ($sk -notmatch '^[A-Za-z0-9_]+$') {
+            Write-Error "Invalid key name in secrets.keys: '$sk' (only A-Z, a-z, 0-9, _ allowed)"
+            exit 1
+        }
+    }
+
     # Parse source file and split
     $configLines = @()
     $splitCount = 0
@@ -46,6 +55,13 @@ function Split-EnvSecrets {
     if ($WriteSecrets) {
         if (Test-Path $secretDir) { Remove-Item $secretDir -Recurse -Force }
         New-Item -ItemType Directory -Path $secretDir -Force | Out-Null
+        # Restrict permissions to current user only
+        $acl = Get-Acl $secretDir
+        $acl.SetAccessRuleProtection($true, $false)
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.SetAccessRule($rule)
+        Set-Acl $secretDir $acl
     }
 
     $lines = Get-Content $SourceFile
@@ -61,7 +77,7 @@ function Split-EnvSecrets {
             continue
         }
         $key = $line.Substring(0, $eqIdx).Trim()
-        $value = $line.Substring($eqIdx + 1).Trim()
+        $value = $line.Substring($eqIdx + 1)
 
         if ($key -in $secretKeys) {
             if ($WriteSecrets) {
@@ -182,11 +198,12 @@ if (-not $envLoaded) {
 
 Write-Host "      Loaded from: $fromSource" -ForegroundColor Green
 
+try {
 # Check if secrets need refreshing
 $refreshSecrets = $true
 $manifest = Join-Path "envs" "secrets.keys"
 $hasManifest = (Test-Path $manifest) -and (
-    (Get-Content $manifest | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith("#") }).Count -gt 0
+    @(Get-Content $manifest | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith("#") }).Count -gt 0
 )
 if ($hasManifest -and (Test-Path ".secrets")) {
     Write-Host ""
@@ -236,16 +253,21 @@ if ($fromSource -ne "Credential Manager (DPAPI)") {
         else { Write-Host "Invalid input. Please enter Y or N." -ForegroundColor Yellow }
     }
     if ($doSave) {
-        # Read full env (from .env.full which has all entries including secrets)
-        $envSource = if (Test-Path ".env.full") { ".env.full" } else { ".env" }
+        # Reconstruct full env from .env (config) + .secrets/ (secrets)
+        $fullLines = @(Get-Content ".env")
+        if (Test-Path ".secrets") {
+            foreach ($file in (Get-ChildItem ".secrets" -File -ErrorAction SilentlyContinue)) {
+                $fullLines += "$($file.Name)=$([System.IO.File]::ReadAllText($file.FullName))"
+            }
+        }
         $entries = @{}
-        Get-Content $envSource | ForEach-Object {
-            $line = $_.Trim()
+        foreach ($rawLine in $fullLines) {
+            $line = $rawLine.Trim()
             if ($line -and -not $line.StartsWith("#")) {
                 $eqIdx = $line.IndexOf("=")
                 if ($eqIdx -gt 0) {
                     $key = $line.Substring(0, $eqIdx).Trim()
-                    $value = $line.Substring($eqIdx + 1).Trim()
+                    $value = $line.Substring($eqIdx + 1)
                     $bytes = [Text.Encoding]::UTF8.GetBytes($value)
                     $encrypted = [Security.Cryptography.ProtectedData]::Protect(
                         $bytes, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser
@@ -282,9 +304,6 @@ if (Test-Path ".env") {
     }
 }
 
-# Clean up intermediate file
-if (Test-Path ".env.full") { Remove-Item ".env.full" -Force }
-
 # .secrets/ persists — Docker Compose bind-mounts these into containers.
 # Cleaned up on 'docker compose down' via env-run.
 if ($secretsSplit) {
@@ -296,4 +315,8 @@ Write-Host "========================================"
 Write-Host "  Deploy complete: $EnvName" -ForegroundColor Green
 Write-Host "========================================"
 
-Pop-Location
+} finally {
+    # Always clean up .env.full (contains all secrets in plaintext)
+    if (Test-Path ".env.full") { Remove-Item ".env.full" -Force }
+    Pop-Location
+}

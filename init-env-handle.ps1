@@ -20,15 +20,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "1.6.13"
+$Version = "1.6.14"
 $defaultOrg = "Grebec-IT"
 $configPath = Join-Path $env:USERPROFILE ".secure-env-handle.json"
 $targetDir = Get-Location
 
 # -- Helper: run git without PowerShell intercepting stderr ----------------
+# Redirects stdout/stderr to suppress token in error messages
 function Invoke-Git {
     param([string]$Arguments)
-    $proc = Start-Process -FilePath "git" -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
+    $proc = Start-Process -FilePath "git" -ArgumentList $Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput ([System.IO.Path]::GetTempFileName()) -RedirectStandardError ([System.IO.Path]::GetTempFileName())
     return $proc.ExitCode
 }
 
@@ -78,13 +79,8 @@ function Install-EnvHandle {
         if (Test-Path $nested) { Remove-Item $nested -Force }
     }
 
-    # Filter by OS: remove scripts for the other platform
-    $isWindows = $env:OS -eq "Windows_NT"
-    if ($isWindows) {
-        Get-ChildItem (Join-Path $envHandleDir "*.sh") -ErrorAction SilentlyContinue | Remove-Item -Force
-    } else {
-        Get-ChildItem (Join-Path $envHandleDir "*.ps1") -ErrorAction SilentlyContinue | Remove-Item -Force
-    }
+    # Filter by OS: remove Linux scripts (this .ps1 script only runs on Windows)
+    Get-ChildItem (Join-Path $envHandleDir "*.sh") -ErrorAction SilentlyContinue | Remove-Item -Force
 
     # -- Ensure .gitignore contains required entries -----------------------
     $gitignorePath = Join-Path $RepoPath ".gitignore"
@@ -164,7 +160,7 @@ try {
                     Write-Host "  Updated: $scriptPath" -ForegroundColor Green
                     Write-Host "  Restarting..." -ForegroundColor Cyan
                     Write-Host ""
-                    & $scriptPath
+                    & $scriptPath @PSBoundParameters
                     exit $LASTEXITCODE
                 } catch {
                     Write-Host "  Download failed: $_" -ForegroundColor Red

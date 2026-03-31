@@ -1,0 +1,18 @@
+# Transient env files (created by deploy/env-run, deleted after)
+.env
+.env.full
+
+# DPAPI credential stores (Windows, machine-bound)
+*.credentials.json
+
+# Installed scripts (downloaded per-project by init-env-handle)
+secure-env-handle-and-deploy/
+
+# Docker secret file mounts (persists while containers run)
+.secrets/
+
+# Test artifacts
+tests/docker-test/.env
+tests/docker-test/.env.full
+tests/docker-test/.secrets/
+tests/docker-test/envs/

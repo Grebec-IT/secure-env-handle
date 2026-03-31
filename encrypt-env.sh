@@ -55,8 +55,8 @@ if [ -d ".secrets" ]; then
         for f in .secrets/*; do
             [ -f "$f" ] || continue
             key="$(basename "$f")"
-            value="$(cat "$f")"
-            echo "$key=$value" >> "$temp_merged"
+            value="$(cat "$f"; printf x)"; value="${value%x}"
+            printf '%s=%s\n' "$key" "$value" >> "$temp_merged"
         done
         encrypt_source="$temp_merged"
         echo "Merged: $INPUT_FILE + $secret_count secret(s) from .secrets/"
@@ -65,9 +65,13 @@ fi
 
 echo "Encrypting: -> $OUTPUT"
 
-age --passphrase --output "$OUTPUT" "$encrypt_source"
+# Ensure temp file is always cleaned up (contains all secrets in plaintext)
+if [ -n "$temp_merged" ]; then
+    chmod 600 "$temp_merged"
+    trap 'rm -f "$temp_merged"' EXIT
+fi
 
-[ -n "$temp_merged" ] && rm -f "$temp_merged"
+age --passphrase --output "$OUTPUT" "$encrypt_source"
 
 echo ""
 echo "Encrypted: $OUTPUT"

@@ -38,7 +38,7 @@ foreach ($rawLine in $lines) {
         $eqIdx = $line.IndexOf("=")
         if ($eqIdx -gt 0) {
             $key = $line.Substring(0, $eqIdx).Trim()
-            $value = $line.Substring($eqIdx + 1).Trim()
+            $value = $line.Substring($eqIdx + 1)
             $entries[$key] = $value
         }
     }

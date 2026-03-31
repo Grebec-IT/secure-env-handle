@@ -51,10 +51,20 @@ layer_names=()
 
 # -- Detect available layers -----------------------------------------------
 
-# Layer 1: .env file
+# Layer 1: .env file (+ .secrets/ if present, for complete view)
 if [ -f "$ENV_FILE" ]; then
-    echo -e "  ${GREEN}[found]${NC}   .env"
     env_data="$(parse_env_file "$ENV_FILE")"
+    if [ -d ".secrets" ]; then
+        for f in .secrets/*; do
+            [ -f "$f" ] || continue
+            key="$(basename "$f")"
+            value="$(cat "$f"; printf x)"; value="${value%x}"
+            env_data="$(printf '%s\n%s=%s' "$env_data" "$key" "$value")"
+        done
+        echo -e "  ${GREEN}[found]${NC}   .env + .secrets/"
+    else
+        echo -e "  ${GREEN}[found]${NC}   .env"
+    fi
     layer_names+=("env")
     layers_found=$((layers_found + 1))
 else
@@ -65,7 +75,8 @@ fi
 if [ -f "$AGE_FILE" ]; then
     if command -v age > /dev/null 2>&1; then
         echo -e "  ${GREEN}[found]${NC}   $AGE_FILE — decrypting..."
-        temp_file="$(mktemp /tmp/verify-env-XXXXXX)"
+        temp_file="$(mktemp)"
+        chmod 600 "$temp_file"
         if age --decrypt --output "$temp_file" "$AGE_FILE" 2>/dev/null; then
             age_data="$(parse_env_file "$temp_file")"
             layer_names+=("age")
@@ -96,7 +107,7 @@ declare -a secret_keys=()
 has_manifest=false
 if [ -f "$manifest" ]; then
     while IFS= read -r line; do
-        line="$(echo "$line" | xargs)"
+        line="$(echo "$line" | sed 's/^\xef\xbb\xbf//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
         [ -z "$line" ] && continue
         [[ "$line" == \#* ]] && continue
         secret_keys+=("$line")
@@ -116,7 +127,7 @@ if [ -n "$env_data" ]; then
     while IFS= read -r line; do
         key="${line%%=*}"
         value="${line#*=}"
-        key="$(echo "$key" | xargs)"
+        key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
         env_vals["$key"]="$value"
         all_keys["$key"]=1
     done <<< "$env_data"
@@ -127,7 +138,7 @@ if [ -n "$age_data" ]; then
     while IFS= read -r line; do
         key="${line%%=*}"
         value="${line#*=}"
-        key="$(echo "$key" | xargs)"
+        key="$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
         age_vals["$key"]="$value"
         all_keys["$key"]=1
     done <<< "$age_data"
@@ -195,10 +206,8 @@ for key in $(echo "${!all_keys[@]}" | tr ' ' '\n' | sort); do
     else
         out_of_sync=$((out_of_sync + 1))
         printf "  %-28s %s" "$display_key" "$type_str"
-        env_preview="${env_vals[$key]:0:4}..."
-        age_preview="${age_vals[$key]:0:4}..."
-        echo -ne "${RED}$(printf '%-10s' "$env_preview")${NC}"
-        echo -e "${RED}$(printf '%-10s' "$age_preview")${NC}  ${RED}MISMATCH${NC}"
+        echo -ne "${RED}$(printf '%-10s' '[differs]')${NC}"
+        echo -e "${RED}$(printf '%-10s' '[differs]')${NC}  ${RED}MISMATCH${NC}"
     fi
 done
 

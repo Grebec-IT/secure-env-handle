@@ -158,7 +158,7 @@ foreach ($rawLine in $fullLines) {
     $eqIdx = $line.IndexOf("=")
     if ($eqIdx -le 0) { $configLines += $rawLine; continue }
     $key = $line.Substring(0, $eqIdx).Trim()
-    $value = $line.Substring($eqIdx + 1).Trim()
+    $value = $line.Substring($eqIdx + 1)
     if ($key -in $secretKeys) {
         $path = Join-Path ".secrets" $key
         [System.IO.File]::WriteAllText($path, $value)

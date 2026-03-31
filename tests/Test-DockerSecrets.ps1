@@ -198,7 +198,7 @@ foreach ($rawLine in (Get-Content ".env.full")) {
     $eqIdx = $line.IndexOf("=")
     if ($eqIdx -le 0) { $configLines += $rawLine; continue }
     $key = $line.Substring(0, $eqIdx).Trim()
-    $value = $line.Substring($eqIdx + 1).Trim()
+    $value = $line.Substring($eqIdx + 1)
 
     if ($key -in $secretKeys) {
         $secretPath = Join-Path ".secrets" $key

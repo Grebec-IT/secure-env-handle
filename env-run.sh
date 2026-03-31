@@ -38,13 +38,21 @@ split_env_secrets() {
 
     local -a secret_keys=()
     while IFS= read -r line; do
-        line="$(echo "$line" | xargs)"
+        line="$(echo "$line" | sed 's/^\xef\xbb\xbf//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
         [ -z "$line" ] && continue
         [[ "$line" == \#* ]] && continue
         secret_keys+=("$line")
     done < "$manifest"
 
     [ ${#secret_keys[@]} -eq 0 ] && return 1
+
+    # Validate key names (prevent path traversal)
+    for sk in "${secret_keys[@]}"; do
+        if ! echo "$sk" | grep -qE '^[A-Za-z0-9_]+$'; then
+            echo "ERROR: Invalid key name in secrets.keys: '$sk' (only A-Z, a-z, 0-9, _ allowed)" >&2
+            exit 1
+        fi
+    done
 
     local secret_dir=".secrets"
     rm -rf "$secret_dir"
@@ -60,7 +68,7 @@ split_env_secrets() {
             continue
         fi
         local key="${trimmed%%=*}"
-        local value="${trimmed#*=}"
+        local value="${line#*=}"
 
         local is_secret=false
         for sk in "${secret_keys[@]}"; do
@@ -158,7 +166,7 @@ if [ -f ".env" ]; then
     if [ -d ".secrets" ]; then
         for f in .secrets/*; do
             [ -f "$f" ] || continue
-            echo "$(basename "$f")=$(cat "$f")" >> .env.full
+            printf '%s=%s\n' "$(basename "$f")" "$(cat "$f"; printf x)" | sed 's/x$//' >> .env.full
         done
     fi
     from_source="existing .env file"
@@ -200,9 +208,9 @@ echo ""
 echo "Running..."
 echo ""
 
-# Cleanup: delete .env only if we created it (from age)
+# Cleanup: always delete .env after command (CLAUDE.md Rule 5: .env only exists briefly)
 cleanup() {
-    if [ "$env_created" = true ] && [ -f ".env" ]; then
+    if [ -f ".env" ]; then
         rm -f .env
         echo ""
         echo "  .env deleted."
