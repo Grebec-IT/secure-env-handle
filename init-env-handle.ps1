@@ -26,10 +26,13 @@ $configPath = Join-Path $env:USERPROFILE ".secure-env-handle.json"
 $targetDir = Get-Location
 
 # -- Helper: run git without PowerShell intercepting stderr ----------------
-# Redirects stdout/stderr to suppress token in error messages
+# Note: token may appear in git error messages (same as bash variant).
+# Using Start-Process avoids PowerShell's own error handling, but git's
+# stderr still goes to the console. A credential helper would be the
+# proper fix, but is out of scope for this setup script.
 function Invoke-Git {
     param([string]$Arguments)
-    $proc = Start-Process -FilePath "git" -ArgumentList $Arguments -NoNewWindow -Wait -PassThru -RedirectStandardOutput ([System.IO.Path]::GetTempFileName()) -RedirectStandardError ([System.IO.Path]::GetTempFileName())
+    $proc = Start-Process -FilePath "git" -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
     return $proc.ExitCode
 }
 
