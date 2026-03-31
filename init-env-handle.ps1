@@ -20,7 +20,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Version = "1.6.14"
+$Version = "1.6.15"
 $defaultOrg = "Grebec-IT"
 $configPath = Join-Path $env:USERPROFILE ".secure-env-handle.json"
 $targetDir = Get-Location
